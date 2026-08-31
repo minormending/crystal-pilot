@@ -1,5 +1,9 @@
 # crystal-pilot
 
+[![data-tests](https://github.com/minormending/crystal-pilot/actions/workflows/tests.yml/badge.svg)](https://github.com/minormending/crystal-pilot/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![python: 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org/)
+
 An auto-pilot for grinding in Pokémon Crystal. You point it at a party member and
 a target level, and it plays the route for you — finding grass, fighting wild
 Pokémon, picking sensible moves, walking to a Pokémon Center when it gets low,
@@ -25,6 +29,24 @@ done: CYNDAQUIL reached Lv25 (from Lv5) on Route 29
 
 Because it runs headless at roughly 28,000 fps (≈470× real time), an hour of
 grinding takes a few seconds.
+
+### Three ways to drive it
+
+Press **Tab** while playing and the menu draws over the game — your real party
+for GRIND, and for HUNT only the species that appear on the route you are
+standing on:
+
+![The in-game menu](docs/screenshots/ingame-menu.png)
+
+Or run `crystal-pilot serve` and open the URL on your phone. Here it has just
+found a HOPPIP and left the battle live for you to take over:
+
+<img src="docs/screenshots/web-ui.png" alt="The web UI on a phone" width="330">
+
+Every run can be recorded as a sped-up video with a caption strip carrying live
+state, so a three-hour grind is a minute you can actually watch:
+
+<img src="docs/screenshots/recording.png" alt="A frame from a recorded run" width="330">
 
 ## Requirements
 
@@ -407,9 +429,18 @@ ok  the best move stays chosen across a run of battles
       6 battles; EMBER 25->19, TACKLE 35->35
 ```
 
-Fixtures are gzipped PyBoy save states (~12 KB each) committed under
-`tests/fixtures/`, built by `tests/build_fixtures.py` rather than by hand, so
-they can be regenerated after a ROM rebuild. Only slow-to-reach situations are
+Fixtures are gzipped PyBoy save states (~12 KB each) built by
+`tests/build_fixtures.py` rather than by hand. They are **not** committed — they
+contain game data — so generate them once after building your ROM:
+
+```bash
+./run-tests --build-fixtures
+```
+
+The badge at the top covers the `data-tests` job, which is the subset that needs
+only the disassembly's data files: names, move data, map connections, warps,
+trainers and the timeline logic — 17 of the 66. The rest drive a real emulator
+and need a ROM, so they run locally rather than in CI. Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
 
