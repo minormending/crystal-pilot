@@ -199,6 +199,39 @@ use. Tasks dispatched either way run in a second, windowless emulator and the
 state is handed back when they finish. An open window pins the emulator to a few
 hundred fps, which would turn a 12-second grind into minutes.
 
+### Control it from your phone
+
+```bash
+crystal-pilot serve
+```
+
+```
+Open this on your phone (same wifi):
+
+    http://192.168.1.24:8080/?t=Xq2f-9tKmA
+```
+
+Opens that URL on your phone and you get the game screen live, plus the same
+tasks as buttons: pick a party member and a level for GRIND, or pick from the
+species that actually appear on the route you are standing on for HUNT and
+CATCH. Progress streams while a task runs and the result lands underneath. There
+is a D-pad too, for nudging the character around — fine for that, laggy for real
+play.
+
+The Mac keeps doing the emulating, which is the point: the value here is running
+headless at tens of thousands of frames a second, and a phone cannot do that.
+There is no app to install.
+
+| Flag | Meaning |
+| --- | --- |
+| `--port` / `--host` | default 8080, bound to all interfaces so a phone can reach it |
+| `--token` | fixed token instead of a fresh random one each run |
+| `--no-input` | drop the D-pad and expose tasks only |
+| `--new-game` | bootstrap a new game first |
+
+It binds to your LAN and every request needs the token, which is a convenience
+for a home network — not a hardened service. Don't port-forward it.
+
 ### Watch what it did
 
 Add `--record` to any task to get a sped-up video with a caption strip showing
@@ -488,6 +521,8 @@ pilot/
   world.py       map graph from connections + warps; nearest Pokémon Center
   travel.py      cross-map travel and the Pokémon Center round trip
   backup.py      save backups and in-game saving
+  webui.py       the phone web UI's server side
+  web/           the page it serves
   overlay.py     draws the pilot's menus onto the emulator screen
   ingame.py      the in-game TAB menu and its keyboard handling
   wild.py        which wild Pokemon appear on which route
