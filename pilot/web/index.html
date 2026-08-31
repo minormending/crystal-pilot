@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16161c">
+<title>crystal-pilot</title>
+<style>
+  :root {
+    --bg: #16161c; --panel: #23232c; --line: #34343f;
+    --ink: #f2f2f5; --dim: #9a9aa8; --accent: #4f7fe8; --ok: #46b06a;
+    --warn: #d8a13a; --bad: #d05a5a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.4 ui-sans-serif, -apple-system, system-ui, sans-serif;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  header {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .02em; }
+  header .where { color: var(--dim); font-size: 13px; margin-left: auto; }
+  main { padding: 12px; max-width: 560px; margin: 0 auto; }
+
+  /* The Game Boy screen: crisp pixels, never blurred by upscaling. */
+  .screen {
+    width: 100%; aspect-ratio: 160 / 144; background: #000;
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+    display: block;
+  }
+  .screen img {
+    width: 100%; height: 100%; display: block;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+  }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  button {
+    font: inherit; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 13px 14px; min-height: 46px; flex: 1 1 auto; cursor: pointer;
+  }
+  button:active { background: #2c2c38; }
+  button.primary { background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  button.ghost { background: transparent; color: var(--dim); }
+  button[disabled] { opacity: .45; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px; margin-top: 12px;
+  }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: var(--dim);
+             text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .list { display: flex; flex-direction: column; gap: 6px; }
+  .opt {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; text-align: left; width: 100%;
+  }
+  .opt .sub { color: var(--dim); font-size: 13px; }
+  .opt[aria-pressed="true"] { border-color: var(--accent); background: #2b3350; }
+
+  .stepper { display: flex; align-items: center; gap: 10px; }
+  .stepper .value { font-size: 30px; font-weight: 700; min-width: 2.6em;
+                    text-align: center; font-variant-numeric: tabular-nums; }
+  .stepper button { flex: 0 0 auto; min-width: 58px; font-size: 20px; }
+
+  .status { display: flex; gap: 8px; align-items: baseline; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: 0 0 auto; }
+  .dot.busy { background: var(--warn); animation: pulse 1s infinite; }
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; }
+  .stats dt { color: var(--dim); }
+  .stats dd { margin: 0; }
+
+  /* Play controls: a D-pad that works with a thumb. */
+  .pad { display: grid; grid-template-columns: repeat(3, 56px);
+         grid-template-rows: repeat(3, 46px); gap: 6px; }
+  .pad button { min-height: 0; padding: 0; }
+  .pad .u { grid-area: 1 / 2; } .pad .l { grid-area: 2 / 1; }
+  .pad .r { grid-area: 2 / 3; } .pad .d { grid-area: 3 / 2; }
+  .face { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .controls { display: flex; gap: 14px; justify-content: space-between;
+              align-items: center; flex-wrap: wrap; }
+  .hide { display: none !important; }
+  footer { color: var(--dim); font-size: 12px; padding: 6px 14px 20px;
+           text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>crystal-pilot</h1>
+  <span class="where" id="where">connecting…</span>
+</header>
+
+<main>
+  <div class="screen"><img id="screen" alt="game screen"></div>
+
+  <div class="card" id="statusCard">
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <div style="flex:1">
+        <div id="statusLine">idle</div>
+        <div class="mono" id="progress" style="color:var(--dim)"></div>
+      </div>
+    </div>
+    <dl class="stats mono hide" id="stats" style="margin-top:10px"></dl>
+  </div>
+
+  <!-- home -->
+  <section id="home">
+    <div class="row">
+      <button class="primary" data-go="grind">Grind</button>
+      <button data-go="hunt">Hunt</button>
+    </div>
+    <div class="row">
+      <button data-go="catch">Catch</button>
+      <button data-go="trainers">Trainers</button>
+    </div>
+    <div class="row">
+      <button class="ghost" id="saveBtn">Save game</button>
+      <button class="ghost" id="toggleControls">Controls</button>
+    </div>
+
+    <div class="card hide" id="controls">
+      <h2>Play</h2>
+      <div class="controls">
+        <div class="pad">
+          <button class="u" data-btn="up">▲</button>
+          <button class="l" data-btn="left">◀</button>
+          <button class="r" data-btn="right">▶</button>
+          <button class="d" data-btn="down">▼</button>
+        </div>
+        <div class="face">
+          <button data-btn="b">B</button>
+          <button data-btn="a">A</button>
+        </div>
+      </div>
+      <div class="row">
+        <button data-btn="select">Select</button>
+        <button data-btn="start">Start</button>
+      </div>
+      <footer>One tap = one press. Fine for nudging; laggy for real play.</footer>
+    </div>
+
+    <div class="card">
+      <h2>Party</h2>
+      <div class="list mono" id="party"></div>
+    </div>
+  </section>
+
+  <!-- pick a party member -->
+  <section id="pickMon" class="hide">
+    <div class="card">
+      <h2>Train which?</h2>
+      <div class="list" id="monList"></div>
+    </div>
+    <div class="row"><button class="ghost" data-back>Back</button></div>
+  </section>
+
+  <!-- pick a level -->
+  <section id="pickLevel" class="hide">
+    <div class="card">
+      <h2 id="levelTitle">To what level?</h2>
+      <div class="stepper">
+        <button data-step="-5">−5</button>
+        <button data-step="-1">−</button>
+        <span class="value" id="levelValue">2</span>
+        <button data-step="1">+</button>
+        <button data-step="5">+5</button>
+      </div>
+    </div>
+    <div class="row">
+      <button class="ghost" data-back>Back</button>
+      <button class="primary" id="startGrind">Start</button>
+    </div>
+  </section>
+
+  <!-- pick a species -->
+  <section id="pickSpecies" class="hide">
+    <div class="card">
+      <h2 id="speciesTitle">Look for what?</h2>
+      <div class="list" id="speciesList"></div>
+      <footer id="speciesNote"></footer>
+    </div>
+    <div class="row"><button class="ghost" data-back>Back</button></div>
+  </section>
+
+  <!-- confirm trainers -->
+  <section id="confirmTrainers" class="hide">
+    <div class="card">
+      <h2>Trainers</h2>
+      <div id="trainerNote"></div>
+      <footer>Trainer battles cannot be fled, so it heals between fights.</footer>
+    </div>
+    <div class="row">
+      <button class="ghost" data-back>Back</button>
+      <button class="primary" id="startTrainers">Battle them</button>
+    </div>
+  </section>
+</main>
+
+<script>
+const token = new URLSearchParams(location.search).get("t") || "";
+const q = (s) => document.querySelector(s);
+const show = (id) => {
+  ["home","pickMon","pickLevel","pickSpecies","confirmTrainers"]
+    .forEach(s => q("#"+s).classList.toggle("hide", s !== id));
+};
+
+let state = {};
+let choice = { slot: 0, level: 2, kind: "hunt" };
+
+async function api(path, body) {
+  const opts = body
+    ? { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) }
+    : {};
+  const res = await fetch(path + (path.includes("?") ? "&" : "?") + "t=" + token, opts);
+  return res.json().catch(() => ({}));
+}
+
+// The screen is a plain <img> repointed on a timer: no websocket to babysit,
+// and the browser handles caching and decoding.
+function refreshScreen() {
+  q("#screen").src = "/screen.png?t=" + token + "&n=" + Date.now();
+}
+
+function renderParty() {
+  const el = q("#party");
+  el.innerHTML = "";
+  (state.party || []).forEach(m => {
+    const d = document.createElement("div");
+    d.textContent = `${m.slot + 1}  ${m.name}  Lv${m.level}  ${m.hp}/${m.maxHp}`
+      + (m.status !== "OK" ? "  " + m.status : "");
+    el.appendChild(d);
+  });
+  if (!(state.party || []).length) el.textContent = "(empty)";
+}
+
+function renderStatus() {
+  q("#where").textContent = state.where + (state.onGrass ? "  · grass" : "");
+  const dot = q("#dot"), line = q("#statusLine"), prog = q("#progress");
+  const stats = q("#stats");
+  if (state.busy) {
+    dot.className = "dot busy";
+    line.textContent = state.task || "working";
+    prog.textContent = state.progress || "";
+    stats.classList.add("hide");
+  } else if (state.result) {
+    dot.className = "dot " + (state.result.ok ? "ok" : "bad");
+    line.textContent = state.result.message || (state.result.ok ? "done" : "stopped");
+    prog.textContent = "";
+    const s = state.result.stats || {};
+    const keys = Object.keys(s);
+    stats.innerHTML = "";
+    keys.forEach(k => {
+      const dt = document.createElement("dt"); dt.textContent = k;
+      const dd = document.createElement("dd"); dd.textContent = s[k];
+      stats.append(dt, dd);
+    });
+    stats.classList.toggle("hide", !keys.length);
+  } else {
+    dot.className = "dot";
+    line.textContent = "idle";
+    prog.textContent = "";
+    stats.classList.add("hide");
+  }
+  document.querySelectorAll("[data-go], #saveBtn").forEach(b => b.disabled = !!state.busy);
+}
+
+async function poll() {
+  try {
+    state = await api("/api/state");
+    renderStatus();
+    renderParty();
+  } catch (e) { q("#where").textContent = "disconnected"; }
+}
+
+// --- flows ---
+document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
+  const kind = b.dataset.go;
+  choice.kind = kind;
+  if (kind === "grind") {
+    const list = q("#monList");
+    list.innerHTML = "";
+    (state.party || []).forEach(m => {
+      const btn = document.createElement("button");
+      btn.className = "opt";
+      btn.innerHTML = `<span>${m.name}</span>`
+        + `<span class="sub">Lv${m.level} · ${m.hp}/${m.maxHp}</span>`;
+      btn.onclick = () => {
+        choice.slot = m.slot;
+        choice.level = Math.min(100, m.level + 1);
+        q("#levelValue").textContent = choice.level;
+        q("#levelTitle").textContent = `${m.name} to what level?`;
+        show("pickLevel");
+      };
+      list.appendChild(btn);
+    });
+    show("pickMon");
+  } else if (kind === "hunt" || kind === "catch") {
+    const list = q("#speciesList");
+    list.innerHTML = "";
+    q("#speciesTitle").textContent = kind === "hunt" ? "Hunt what?" : "Catch what?";
+    // Only what actually appears here, straight from the game's encounter table.
+    q("#speciesNote").textContent = (state.species || []).length
+      ? "Wild Pokémon on " + state.where
+      : "Nothing wild appears here.";
+    const mk = (label, payload, sub) => {
+      const btn = document.createElement("button");
+      btn.className = "opt";
+      btn.innerHTML = `<span>${label}</span>` + (sub ? `<span class="sub">${sub}</span>` : "");
+      btn.onclick = () => send(Object.assign({ kind }, payload));
+      list.appendChild(btn);
+    };
+    mk("Any shiny", { shiny: true }, "rare");
+    (state.species || []).forEach(s => mk(s, { species: s }));
+    show("pickSpecies");
+  } else if (kind === "trainers") {
+    q("#trainerNote").textContent = state.trainers
+      ? `${state.trainers} trainer(s) on ${state.where}.`
+      : "No trainers on this map.";
+    q("#startTrainers").disabled = !state.trainers;
+    show("confirmTrainers");
+  }
+});
+
+document.querySelectorAll("[data-back]").forEach(b => b.onclick = () => show("home"));
+document.querySelectorAll("[data-step]").forEach(b => b.onclick = () => {
+  choice.level = Math.max(2, Math.min(100, choice.level + Number(b.dataset.step)));
+  q("#levelValue").textContent = choice.level;
+});
+q("#startGrind").onclick = () => send({ kind: "grind", slot: choice.slot, level: choice.level });
+q("#startTrainers").onclick = () => send({ kind: "trainers" });
+q("#saveBtn").onclick = async () => { await api("/api/save", {}); show("home"); poll(); };
+q("#toggleControls").onclick = () => q("#controls").classList.toggle("hide");
+document.querySelectorAll("[data-btn]").forEach(b => b.onclick = () =>
+  api("/api/input", { button: b.dataset.btn }));
+
+async function send(payload) {
+  show("home");
+  const res = await api("/api/task", payload);
+  if (res && res.ok === false) {
+    state.result = { ok: false, message: res.message || "could not start" };
+    renderStatus();
+  }
+  poll();
+}
+
+show("home");
+poll();
+setInterval(poll, 700);
+setInterval(refreshScreen, 500);
+refreshScreen();
+</script>
+</body>
+</html>
