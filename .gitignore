@@ -1,0 +1,24 @@
+# Nothing derived from the game is distributed: not the ROM, not saves, not
+# save states. Build the ROM from the pokecrystal disassembly yourself, then
+# generate the test fixtures with `./run-tests --build-fixtures`.
+*.gbc
+*.gb
+*.sav
+*.sym
+*.state
+*.state.gz
+*.ram
+*.rtc
+tests/fixtures/
+pilot-backups/
+*-timeline/
+
+# Recordings
+*.mp4
+*.gif
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
