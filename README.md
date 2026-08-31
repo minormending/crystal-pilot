@@ -437,10 +437,16 @@ contain game data — so generate them once after building your ROM:
 ./run-tests --build-fixtures
 ```
 
-The badge at the top covers the `data-tests` job, which is the subset that needs
-only the disassembly's data files: names, move data, map connections, warps,
-trainers and the timeline logic — 17 of the 66. The rest drive a real emulator
-and need a ROM, so they run locally rather than in CI. Only slow-to-reach situations are
+The badge at the top covers the `data-tests` job. CI has no ROM, so the 50 tests
+that drive a real emulator skip themselves and the 16 that only read the
+disassembly's data files run: names, move data, map connections, warps, trainers
+and the timeline logic. The runner says so rather than reporting a bare pass:
+
+```
+16 passed, 50 skipped, 0 failed  (0.1s)
+  skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
+  (50 tests need a ROM built from the disassembly)
+``` Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
 

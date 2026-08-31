@@ -33,4 +33,7 @@ jobs:
       - name: Run the data tests
         env:
           POKECRYSTAL_DIR: /home/runner/pokecrystal
-        run: python -m tests -k "gamedata|world|timeline"
+        # No filter: tests that need a ROM skip themselves, which is sturdier
+        # than a name pattern (an earlier "gamedata|world|timeline" filter also
+        # matched a navigation test called "reaches a live overworld").
+        run: python -m tests

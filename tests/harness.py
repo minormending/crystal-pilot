@@ -38,6 +38,16 @@ class Failure(AssertionError):
     pass
 
 
+class Skipped(Exception):
+    """Raised when a test cannot run here -- currently, only a missing ROM.
+
+    Skipping rather than failing lets CI run everything that does not need an
+    emulator without a hand-maintained list of test names, which is what broke:
+    a filter of "gamedata|world|timeline" also matched a navigation test called
+    "reaches a live overworld".
+    """
+
+
 def test(name: str, group: str = ""):
     def wrap(fn):
         _REGISTRY.append((group or fn.__module__.split(".")[-1], name, fn))
@@ -119,7 +129,7 @@ class Ctx(Check):
     # -- emulator ------------------------------------------------------------
     def require_rom(self) -> None:
         if not Path(self.rom).exists():
-            raise Failure(
+            raise Skipped(
                 f"ROM not found: {self.rom}\n"
                 f"Build it from the pokecrystal disassembly with `make`, or set "
                 f"POKECRYSTAL_ROM. Tests that only read the disassembly's data "
@@ -227,7 +237,7 @@ def run(pattern: str | None = None, verbose: bool = False) -> int:
         print(f"no tests match {pattern!r}")
         return 1
 
-    passed, failed, current_group = 0, [], None
+    passed, skipped, failed, current_group = 0, [], [], None
     t_all = time.monotonic()
     for group, name, fn in selected:
         if group != current_group:
@@ -237,6 +247,9 @@ def run(pattern: str | None = None, verbose: bool = False) -> int:
         t0 = time.monotonic()
         try:
             fn(ctx)
+        except Skipped as e:
+            skipped.append((group, name, str(e)))
+            status, detail = "skip", ""
         except Failure as e:
             failed.append((group, name, str(e), None))
             status, detail = "FAIL", str(e)
@@ -250,7 +263,7 @@ def run(pattern: str | None = None, verbose: bool = False) -> int:
         finally:
             ctx.close()
         secs = time.monotonic() - t0
-        mark = "  ok  " if status == "ok" else f" {status} "
+        mark = {"ok": "  ok  ", "skip": " skip "}.get(status, f" {status} ")
         print(f" {mark} {name}  ({secs:.1f}s)")
         for n in ctx.notes:
             if verbose or status != "ok":
@@ -259,7 +272,16 @@ def run(pattern: str | None = None, verbose: bool = False) -> int:
             print(f"         -> {detail}")
 
     elapsed = time.monotonic() - t_all
-    print(f"\n{passed} passed, {len(failed)} failed  ({elapsed:.1f}s)")
+    summary = f"{passed} passed"
+    if skipped:
+        summary += f", {len(skipped)} skipped"
+    summary += f", {len(failed)} failed"
+    print(f"\n{summary}  ({elapsed:.1f}s)")
+    if skipped:
+        # Say loudly what did not run, so a green summary is never mistaken for
+        # full coverage.
+        print(f"  skipped: {skipped[0][2].splitlines()[0]}")
+        print(f"  ({len(skipped)} tests need a ROM built from the disassembly)")
     if failed and verbose:
         for group, name, msg, tb in failed:
             if tb:
