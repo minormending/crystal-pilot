@@ -117,8 +117,18 @@ class Ctx(Check):
         return _shared["world"]
 
     # -- emulator ------------------------------------------------------------
+    def require_rom(self) -> None:
+        if not Path(self.rom).exists():
+            raise Failure(
+                f"ROM not found: {self.rom}\n"
+                f"Build it from the pokecrystal disassembly with `make`, or set "
+                f"POKECRYSTAL_ROM. Tests that only read the disassembly's data "
+                f"files do not need one."
+            )
+
     def pilot(self, fixture: str | None = None, timeout: float = 300.0):
         """A Pilot, optionally restored to a fixture's exact machine state."""
+        self.require_rom()
         from pilot.pilot import Pilot
         p = Pilot(rom=self.rom, source=self.source, window="null", speed=0,
                   timeout_seconds=timeout, log=lambda *a, **k: None)
@@ -132,6 +142,7 @@ class Ctx(Check):
     def rom_copy(self, tag: str = "case"):
         """A private ROM+sym copy in a temp dir, so save tests never touch the
         real .sav. Cleaned up when the test finishes."""
+        self.require_rom()
         import shutil
         import tempfile
         d = Path(tempfile.mkdtemp(prefix=f"crystal-pilot-{tag}-"))
@@ -203,9 +214,9 @@ def save_fixture(name: str, blob: bytes) -> Path:
 
 # --- runner ----------------------------------------------------------------
 def run(pattern: str | None = None, verbose: bool = False) -> int:
-    if not DEFAULT_ROM.exists():
-        print(f"ROM not found: {DEFAULT_ROM}\n"
-              f"Build it in the pokecrystal checkout with `make`.", file=sys.stderr)
+    if not DEFAULT_SOURCE.exists():
+        print(f"pokecrystal disassembly not found: {DEFAULT_SOURCE}\n"
+              f"Clone it, or set POKECRYSTAL_DIR.", file=sys.stderr)
         return 2
 
     selected = _REGISTRY
