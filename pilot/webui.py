@@ -20,6 +20,7 @@ import io
 import queue
 import secrets
 import socket
+import sys
 import threading
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -97,8 +98,14 @@ class WebPilot:
         self._serve_forever_in_background()
         self._refresh_status()
         self._refresh_frame(force=True)
-        self.log(f"\nOpen this on your phone (same wifi):\n\n    {self.url()}\n")
-        self.log("Ctrl-C to stop.\n")
+        self._say("")
+        self._say("  Open this on your phone, on the same wifi:")
+        self._say("")
+        self._say(f"      {self.url()}")
+        self._say("")
+        self._say("  The token in the URL is the only thing protecting this,")
+        self._say("  so keep it on your own network. Ctrl-C to stop.")
+        self._say("")
         ticks = 0
         try:
             while self._running:
@@ -120,6 +127,19 @@ class WebPilot:
             pass
         finally:
             self.stop()
+
+    def _say(self, line: str) -> None:
+        """Print and flush.
+
+        stdout is block-buffered whenever it is not a terminal, so without this
+        the connection URL -- the one line you actually need -- can sit in the
+        buffer indefinitely.
+        """
+        self.log(line)
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
 
     def stop(self) -> None:
         self._running = False
@@ -237,7 +257,7 @@ class WebPilot:
             self._status.task = title
             self._status.progress = "starting"
             self._status.result = None
-        self.log(f"web: {title}")
+        self._say(f"  {title}")
 
     def _progress(self, text: str) -> None:
         with self._lock:
@@ -248,7 +268,7 @@ class WebPilot:
             self._status.busy = False
             self._status.progress = ""
             self._status.result = result
-        self.log(f"web: {result.get('message', '')}")
+        self._say(f"  {result.get('message', '')}")
 
     def _trainer_count(self) -> int:
         loc = self.p.reader.location()

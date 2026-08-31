@@ -113,6 +113,12 @@ class Session:
                 sound_emulated=False,
                 symbols=str(sym_path),
                 ram_file=ram_handle,
+                # PyBoy warns once per .sym line that is not an address, and
+                # pokecrystal's symbol file has hundreds of scene constants.
+                # It is harmless, and 300+ lines drown out anything the pilot
+                # says. PyBoy applies this itself at construction, so setting
+                # the logger level from outside gets overwritten.
+                log_level="ERROR",
             )
         finally:
             if ram_handle is not None:

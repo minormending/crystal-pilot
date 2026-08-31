@@ -228,10 +228,30 @@ crystal-pilot serve
 ```
 
 ```
-Open this on your phone (same wifi):
+  Open this on your phone, on the same wifi:
 
-    http://192.168.1.24:8080/?t=Xq2f-9tKmA
+      http://192.168.1.168:8080/?t=pilot
+
+  The token in the URL is the only thing protecting this,
+  so keep it on your own network. Ctrl-C to stop.
 ```
+
+Type that into any phone browser — Android or iPhone, no app to install. The
+address is your Mac's LAN address, so both devices need to be on the same wifi.
+`--token pilot` is worth using: the default is random, and random tokens are
+miserable to type on a phone.
+
+If the page will not load, it is almost always one of three things: the phone is
+on a different network (guest wifi is a common trap), the router has client
+isolation turned on, or macOS is asking whether to allow incoming connections to
+Python. Over USB you can sidestep all of them with adb:
+
+```bash
+adb reverse tcp:8080 tcp:8080
+```
+
+then open `http://localhost:8080/?t=pilot` on the phone. (Untested here — no
+Android device to hand — but that is the standard reverse-forward.)
 
 Opens that URL on your phone and you get the game screen live, plus the same
 tasks as buttons: pick a party member and a level for GRIND, or pick from the
