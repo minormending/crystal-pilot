@@ -17,10 +17,21 @@ END_WILD = re.compile(r"^\s*end_\w+_wildmons")
 SOURCES = ("johto_grass.asm", "johto_water.asm", "kanto_grass.asm",
            "kanto_water.asm")
 
+# A grass table is three blocks of seven: morning, day, night, in that order.
+# Which block you meet depends on the clock, and the difference is not cosmetic
+# -- Route 29 swaps PIDGEY and SENTRET for HOOTHOOT after dark. Water tables
+# have a single block that applies all day.
+GRASS_SLOTS_PER_TIME = 7
+MORN, DAY, NITE = 0, 1, 2
+
 
 @lru_cache(maxsize=4)
 def load(source_root: str) -> dict[str, list[dict]]:
-    """MAP_CONST -> [{species, level, kind}], in table order."""
+    """MAP_CONST -> [{species, level, kind, time}], in table order.
+
+    `time` is 0/1/2 for a grass slot's morning/day/night block, or None for a
+    table that does not vary with the clock.
+    """
     root = Path(source_root) / "data" / "wild"
     out: dict[str, list[dict]] = {}
     for name in SOURCES:
@@ -41,18 +52,31 @@ def load(source_root: str) -> dict[str, list[dict]]:
             if current:
                 m = ENTRY.match(line)
                 if m:
+                    slot = len(out[current])
+                    time = (slot // GRASS_SLOTS_PER_TIME
+                            if kind == "grass" else None)
                     out[current].append({"level": int(m.group(1)),
-                                         "species": m.group(2), "kind": kind})
+                                         "species": m.group(2),
+                                         "kind": kind, "time": time})
     return out
 
 
-def species_on(source_root: str, map_const: str) -> list[str]:
+def species_on(source_root: str, map_const: str,
+               time_of_day: int | None = None) -> list[str]:
     """Distinct species on a map, commonest first.
 
-    Frequency is approximated by how many slots a species occupies across the
-    time-of-day tables, which is what actually decides how often you meet it.
+    Frequency is approximated by how many slots a species occupies, which is
+    what actually decides how often you meet it.
+
+    Pass `time_of_day` (0 morning, 1 day, 2 night) to get only what is out
+    now. Without it the list spans the whole day, which is how a menu came to
+    offer PIDGEY at midnight on a route where nothing but HOOTHOOT appears
+    after dark -- the fruitless hunt this module exists to prevent.
     """
     entries = load(str(source_root)).get(map_const, [])
+    if time_of_day is not None:
+        entries = [e for e in entries
+                   if e["time"] is None or e["time"] == time_of_day]
     counts: dict[str, int] = {}
     for e in entries:
         counts[e["species"]] = counts.get(e["species"], 0) + 1

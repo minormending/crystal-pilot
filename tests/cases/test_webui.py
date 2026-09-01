@@ -243,10 +243,16 @@ def _(t):
     p.control.open_start_menu()
     p.session.tick(30)
     t.true(web._window_open(), "the START menu is up")
-    entries = p.session.rb("wMenuDataItems")
+    entries = web._menu_entries(web._menu_box())
 
-    for top in (0, 1):        # a real even-top menu, and an odd-top one
+    real_top = p.session.rb("wMenuBorderTopCoord")
+    real_bottom = p.session.rb("wMenuBorderBottomCoord")
+    for top in (real_top, real_top + 1):   # as drawn, and shifted onto an odd row
+        # The whole box moves, not just its top edge: the entry count is bounded
+        # by what fits between the borders, so shifting one edge alone invents a
+        # menu the game would never draw.
         p.session.wb("wMenuBorderTopCoord", top)
+        p.session.wb("wMenuBorderBottomCoord", real_bottom + (top - real_top))
         picked = []
         for row in range(1, entries + 1):
             text_row = top + MENU_FIRST_ROW + (row - 1) * MENU_ROW_STRIDE
@@ -280,3 +286,117 @@ def _(t):
         t.true(raised is None, f"{bad} raised out of _handle ({raised})")
     # and the emulator is still there to be used
     t.gte(p.reader.party_count(), 1, "the pilot survived")
+
+
+def _into_battle(p):
+    """Walk the grass until a wild battle starts and its menu is drawn."""
+    for _ in range(60):
+        if p.reader.in_battle():
+            break
+        p.nav.step("left")
+        p.nav.step("right")
+    for _ in range(40):
+        p.session.tap("a", hold=4, gap=8)
+        if (p.session.rb("wMenuCursorY") in (1, 2)
+                and p.session.rb("wMenuCursorX") in (1, 2)):
+            break
+    p.session.tick(40)
+    return p.reader.in_battle()
+
+
+@test("a tap during a battle is refused, not aimed at the battle menu")
+def _(t):
+    """The battle puts a window on the stack, so asking "is a menu up?" before
+    "are we in a battle?" sent taps into the cursor code -- which drives one
+    column and cannot work a 2x2 menu. It would quietly move the selection onto
+    RUN or PKMN under the player."""
+    p, web = _web(t, fixture="grass_cyndaquil")
+    if not _into_battle(p):
+        t.note("no wild battle appeared; nothing to check")
+        return
+    t.true(web._window_open(), "a battle really does open a window")
+    before = (p.session.rb("wMenuCursorX"), p.session.rb("wMenuCursorY"))
+    title, call = web._plan("tap", {"x": 0.5, "y": 0.85})
+    t.true(call is None, f"should be refused, planned {title!r}")
+    t.contains(title, "battle", "says why")
+    t.eq((p.session.rb("wMenuCursorX"), p.session.rb("wMenuCursorY")), before,
+         "and the battle menu selection is untouched")
+
+
+@test("the menu entry count is not read from a byte that means something else")
+def _(t):
+    """wMenuDataItems shares an address with the 2D menu's dimensions byte, so
+    it reads 34 for the battle menu. What fits between the borders is the
+    honest ceiling."""
+    p, web = _web(t, fixture="grass_cyndaquil")
+    if not _into_battle(p):
+        t.note("no wild battle appeared; nothing to check")
+        return
+    box = web._menu_box()
+    raw = p.session.rb("wMenuDataItems")
+    t.note(f"box={box} raw wMenuDataItems={raw} -> {web._menu_entries(box)}")
+    t.gt(raw, 8, "the raw byte really is nonsense here")
+    t.eq(web._menu_entries(box), 2, "two rows fit between those borders")
+
+
+@test("a tap outside an open menu is not a choice of entry")
+def _(t):
+    """The START menu is the right half of the screen. A tap in the far corner
+    used to move the cursor anyway, clamped to whichever end it rounded to."""
+    p, web = _web(t, fixture="route30")
+    p.control.open_start_menu()
+    p.session.tick(30)
+    top, left, bottom, right = web._menu_box()
+    t.gt(left, 0, "the menu does not reach the left edge")
+    before = p.session.rb("wMenuCursorY")
+
+    title, call = web._plan("tap", {"x": 0.02, "y": 0.97})
+    t.true(call is None, f"a corner tap should be refused, planned {title!r}")
+    t.eq(p.session.rb("wMenuCursorY"), before, "cursor untouched")
+
+    # inside the box it still works
+    inside = {"x": (left + 1.5) / 20, "y": (top + MENU_FIRST_ROW + 0.5) / TEXT_ROWS}
+    title, call = web._plan("tap", inside)
+    t.true(call is not None, f"a tap on entry 1 should plan: {title!r}")
+
+
+@test("a tap past the edge of the map says so")
+def _(t):
+    p, web = _web(t, fixture="route30")
+    p.calibrate()
+    width, height = p.collision.map_size()
+    loc = p.reader.location()
+    # the fixture stands on the bottom row, so tapping below it leaves the map
+    if loc.y + (SCREEN_TILES_Y - 1) - PLAYER_TILE_Y < height:
+        t.note("this fixture is not near an edge; nothing to check")
+        return
+    title, call = web._plan("tap", _tap_on(PLAYER_TILE_X, SCREEN_TILES_Y - 1))
+    t.note(f"map is {width}x{height}, player at ({loc.x},{loc.y}): {title!r}")
+    t.true(call is None, "should be refused")
+    t.contains(title, "off the edge", "says why, rather than blaming the route")
+
+
+@test("the idle loop runs the game at normal speed, not as fast as it can")
+def _(t):
+    """The pilot is unthrottled so tasks finish in seconds, but the idle loop is
+    what someone is watching: left at full speed it ran the world at 127x."""
+    import threading, time
+    # run() writes the .sav when it stops, so this runs against a private copy
+    # of the ROM. Pointed at the shared one it left a save behind that every
+    # later test then booted from.
+    p = t.pilot_on(t.rom_copy("idle"), "route30")
+    from pilot.webui import WebPilot
+    web = WebPilot(p, source=t.source, log=lambda *a, **k: None)
+    web.port, web.host, web.token = 8199, "127.0.0.1", "test"
+    thread = threading.Thread(target=web.run, daemon=True)
+    thread.start()
+    try:
+        time.sleep(0.8)
+        first = p.session.pyboy.frame_count
+        time.sleep(1.2)
+        fps = (p.session.pyboy.frame_count - first) / 1.2
+    finally:
+        web._running = False
+        time.sleep(0.3)
+    t.note(f"{fps:,.0f} fps while idle")
+    t.true(fps < 400, f"idle should be about real time, saw {fps:,.0f} fps")

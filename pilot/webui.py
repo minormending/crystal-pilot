@@ -48,6 +48,7 @@ PLAYER_TILE_X, PLAYER_TILE_Y = 4, 4
 # Menus are drawn on the 8x8 text grid, two rows per entry, with the first entry
 # two rows below the window's top edge.
 TEXT_ROWS = 18
+TEXT_COLS = 20
 MENU_FIRST_ROW = 2
 MENU_ROW_STRIDE = 2
 
@@ -137,6 +138,13 @@ class WebPilot:
         self._say("  so keep it on your own network. Ctrl-C to stop.")
         self._say("")
         ticks = 0
+        # The pilot runs unthrottled so tasks finish in seconds, but the idle
+        # loop is what someone is *watching*: left at full speed it ran the
+        # world at 127x real time -- 7,557 fps measured -- so NPCs raced, the
+        # clock sprinted, and consecutive frames served to the phone were
+        # hundreds of frames apart. Tasks put it back to unthrottled for as long
+        # as they run.
+        self.p.session.pyboy.set_emulation_speed(1)
         try:
             while self._running:
                 try:
@@ -150,12 +158,15 @@ class WebPilot:
                     # which stops the emulator and writes the save. A typo in a
                     # curl command would end a running grind, and the HTTP layer
                     # had already answered {"ok": true}.
+                    self.p.session.pyboy.set_emulation_speed(0)
                     try:
                         self._handle(cmd)
                     except Exception as e:  # noqa: BLE001
                         self._finish({"ok": False,
                                       "message": f"could not do that: "
                                                  f"{type(e).__name__}: {e}"})
+                    finally:
+                        self.p.session.pyboy.set_emulation_speed(1)
                     continue
                 self.p.session.pyboy.tick(1, True)
                 ticks += 1
@@ -250,6 +261,34 @@ class WebPilot:
         if not (0.0 <= fy <= 1.0):
             return None
         return min(TEXT_ROWS - 1, int(fy * TEXT_ROWS))
+
+    def _tap_col(self, cmd: dict) -> int | None:
+        """The tapped column on the 8px text grid."""
+        try:
+            fx = float(cmd.get("x", -1))
+        except (TypeError, ValueError):
+            return None
+        if not (0.0 <= fx <= 1.0):
+            return None
+        return min(TEXT_COLS - 1, int(fx * TEXT_COLS))
+
+    def _menu_box(self) -> tuple[int, int, int, int]:
+        """The open menu's border, as (top, left, bottom, right) text cells."""
+        s = self.p.session
+        return (s.rb("wMenuBorderTopCoord"), s.rb("wMenuBorderLeftCoord"),
+                s.rb("wMenuBorderBottomCoord"), s.rb("wMenuBorderRightCoord"))
+
+    def _menu_entries(self, box: tuple[int, int, int, int]) -> int:
+        """How many entries the open menu has.
+
+        wMenuDataItems shares its address with the 2D menu's dimensions byte,
+        so it cannot be taken at face value: the battle menu reports 34 there.
+        What fits between the borders is the honest ceiling -- for the START
+        menu the two agree exactly at 7 -- so the count is clamped to it.
+        """
+        top, _left, bottom, _right = box
+        fits = max(1, (bottom - top - 1) // MENU_ROW_STRIDE)
+        return max(1, min(fits, self.p.session.rb("wMenuDataItems") or fits))
 
     def _tap_target(self, cmd: dict) -> tuple[int, int] | None:
         """The tapped screen tile, from fractions of the screen's width/height.
@@ -390,28 +429,45 @@ class WebPilot:
             if tile is None:
                 return "that tap was off the screen", None
             tx, ty = tile
+            # Before the window check, not after it. A battle puts a window on
+            # the stack too, so asking "is a menu up?" first meant a tap during
+            # a battle took the menu branch and this line never ran -- and the
+            # battle menu is the one menu the cursor code cannot drive, being
+            # two columns wide.
+            if self.p.reader.in_battle():
+                return "that is a battle, not the map", None
             if self._window_open():
                 # A menu is up, so the tap means "put the cursor there" rather
                 # than "walk there" -- there is no map on screen to walk on.
                 cursor = self.p.session.rb("wMenuCursorY")
                 if cursor == 0:
                     return "that is a textbox, not a menu -- press A", None
-                entries = max(1, self.p.session.rb("wMenuDataItems"))
-                top = self.p.session.rb("wMenuBorderTopCoord")
+                box = self._menu_box()
                 text_row = self._tap_row(cmd)
-                if text_row is None:
+                text_col = self._tap_col(cmd)
+                if text_row is None or text_col is None:
                     return "that tap was off the screen", None
+                top, left, bottom, right = box
+                # Menus do not fill the screen -- the START menu is the right
+                # half -- so a tap outside the box is not a choice of entry.
+                # Without this a tap in the far corner still drove the cursor,
+                # clamped to whichever end it rounded to.
+                if not (left <= text_col <= right and top <= text_row <= bottom):
+                    return "that tap was outside the menu", None
+                entries = self._menu_entries(box)
                 row = (text_row - top - MENU_FIRST_ROW) // MENU_ROW_STRIDE + 1
                 row = max(1, min(entries, row))
                 return (f"cursor to entry {row}",
                         lambda: self._move_cursor_to_row(row, entries))
-            if self.p.reader.in_battle():
-                return "that is a battle, not the map", None
             loc = self.p.reader.location()
             goal = (loc.x + tx - PLAYER_TILE_X, loc.y + ty - PLAYER_TILE_Y)
             if goal == (loc.x, loc.y):
                 return "you are already standing there", None
-            if min(goal) < 0:
+            width, height = self.p.collision.map_size()
+            if not (0 <= goal[0] < width and 0 <= goal[1] < height):
+                # Bounded by the map, not just by zero: tapping past the edge of
+                # a small room asks for a tile that does not exist, and "could
+                # not reach it" blames the route for that.
                 return "that is off the edge of the map", None
             return (f"walk to ({goal[0]},{goal[1]})",
                     lambda: self._walk_to_tap(goal))
@@ -473,7 +529,10 @@ class WebPilot:
                 "where": gd.map_pretty(loc.group, loc.number),
                 "on_grass": r.on_grass(),
                 "party": party,
-                "species": species_on(self.source, const),
+                # Filtered by the clock: the phone should not offer PIDGEY
+                # at midnight on a route that only has HOOTHOOT after dark.
+                "species": species_on(self.source, const,
+                                      self.p.session.rb("wTimeOfDay")),
                 "trainers": len(self.p.world.trainers.get(const, [])),
                 "balls": balls,
                 "frame": self.p.session.frame,

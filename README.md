@@ -492,7 +492,7 @@ crystal-pilot backups restore --name 20260831-142320-grind-CYNDAQUIL-L25.state
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-77 tests. Most of them exist because of a specific bug that shipped and was
+82 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -514,15 +514,15 @@ contain game data — so generate them once after building your ROM:
 ./run-tests --build-fixtures
 ```
 
-The badge at the top covers the `data-tests` job. CI has no ROM, so the 61 tests
+The badge at the top covers the `data-tests` job. CI has no ROM, so the 66 tests
 that drive a real emulator skip themselves and the 16 that only read the
 disassembly's data files run: names, move data, map connections, warps, trainers
 and the timeline logic. The runner says so rather than reporting a bare pass:
 
 ```
-16 passed, 61 skipped, 0 failed  (0.1s)
+16 passed, 66 skipped, 0 failed  (0.1s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (61 tests need a ROM built from the disassembly)
+  (66 tests need a ROM built from the disassembly)
 ``` Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
@@ -536,7 +536,7 @@ caught  move choice counts presses instead of reading the cursor
 caught  the intro is left to mash A through the NAME menu
 caught  nickname prompts are answered with their default of YES
 caught  collision map reads the wrong quadrant of each block
-8 caught, 0 missed
+11 caught, 0 missed
 ```
 
 It has already earned its keep. Two tests passed mutations they should have

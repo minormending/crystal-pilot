@@ -50,6 +50,27 @@ MUTATIONS = [
         "strongest available move",
     ),
     (
+        'a tap in a battle is aimed at the 2x2 battle menu again',
+        'pilot/webui.py',
+        '            if self.p.reader.in_battle():\n                return "that is a battle, not the map", None\n            if self._window_open():',
+        '            if self._window_open():',
+        'battle is refused',
+    ),
+    (
+        'a tap outside a menu moves its cursor anyway',
+        'pilot/webui.py',
+        '                if not (left <= text_col <= right and top <= text_row <= bottom):',
+        '                if False:',
+        'outside an open menu',
+    ),
+    (
+        'the menu entry count trusts a byte the 2D menu reuses',
+        'pilot/webui.py',
+        '        return max(1, min(fits, self.p.session.rb("wMenuDataItems") or fits))',
+        '        return max(1, self.p.session.rb("wMenuDataItems") or fits)',
+        'means something else',
+    ),
+    (
         # Without the interception the intro mashes A into the NAME menu,
         # takes NEW NAME, and spells the player's name out of the grid.
         "the intro is left to mash A through the NAME menu",

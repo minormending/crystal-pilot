@@ -7,6 +7,25 @@ never counted, trainers recorded as beaten that were never fought.
 from ..harness import test
 
 
+def _always_out(t, map_const="ROUTE_29"):
+    """A species that appears on this route whatever the clock says.
+
+    The pilot runs at hundreds of times real time, so the in-game clock crosses
+    a time-of-day boundary partway through a test -- and Route 29 swaps PIDGEY
+    and SENTRET for HOOTHOOT after dark. Tests that named a species were
+    therefore green in the morning and red at night, which is a fact about the
+    clock rather than about catching. Picking one that is always out keeps them
+    about the thing they are testing.
+    """
+    from pilot.wild import species_on
+    per_time = [set(species_on(t.source, map_const, tod)) for tod in (0, 1, 2)]
+    always = set.intersection(*per_time)
+    for name in species_on(t.source, map_const):      # commonest first
+        if name in always:
+            return name.lower()
+    raise AssertionError(f"no species is out around the clock on {map_const}")
+
+
 @test("catch reports exactly the number of balls it spent")
 def _(t):
     p = t.pilot("grass_cyndaquil")
@@ -14,7 +33,7 @@ def _(t):
     poke_ball = p.gamedata.item_id("POKE_BALL")
     before = p.reader.ball_count(poke_ball)
 
-    res = p.catch(species="sentret", save_when_done=False, max_encounters=60)
+    res = p.catch(species=_always_out(t), save_when_done=False, max_encounters=60)
     after = p.reader.ball_count(poke_ball)
     spent = before - after
     reported = res.stats.get("balls_thrown", 0)
@@ -30,10 +49,11 @@ def _(t):
     p = t.pilot("grass_cyndaquil")
     t.give_balls(p)
     before = p.reader.party_count()
-    res = p.catch(species="pidgey", save_when_done=False, max_encounters=60)
+    want = _always_out(t)
+    res = p.catch(species=want, save_when_done=False, max_encounters=60)
     t.eq(res.status, "completed", f"catch outcome ({res.message})")
     t.eq(p.reader.party_count(), before + 1, "party size")
-    t.eq(p.reader.mon(p.reader.party_count() - 1).species_name, "PIDGEY",
+    t.eq(p.reader.mon(p.reader.party_count() - 1).species_name, want.upper(),
          "the caught species")
 
 
@@ -44,12 +64,13 @@ def _(t):
     should come back called what the game calls them."""
     p = t.pilot("grass_cyndaquil")
     t.give_balls(p)
-    res = p.catch(species="pidgey", save_when_done=False, max_encounters=60)
+    want = _always_out(t)
+    res = p.catch(species=want, save_when_done=False, max_encounters=60)
     t.eq(res.status, "completed", f"catch outcome ({res.message})")
     slot = p.reader.party_count() - 1
     name = p.reader.nickname(slot)
-    t.note(f"caught mon in slot {slot + 1} is called {name}")
-    t.eq(name, "PIDGEY", "the caught mon's name")
+    t.note(f"caught {want.upper()} in slot {slot + 1}; it is called {name}")
+    t.eq(name, want.upper(), "the caught mon's name")
 
 
 @test("the intro takes one of the game's own names, not the letter grid")
@@ -114,7 +135,7 @@ def _(t):
 @test("hunt flees the encounters it does not want")
 def _(t):
     p = t.pilot("grass_cyndaquil")
-    res = p.hunt(species="hoppip", max_encounters=200)
+    res = p.hunt(species=_always_out(t), max_encounters=200)
     t.note(f"{res.status}: {res.stats}")
     t.eq(res.status, "completed", f"hunt outcome ({res.message})")
     # Every encounter that was not the target had to be fled. Stated as an

@@ -176,7 +176,11 @@ class InGameMenu:
     def _hunt_or_catch(self, kind: str) -> None:
         loc = self.p.reader.location()
         const = self.p.gamedata.map_name(loc.group, loc.number)
-        found = species_on(self.source, const)
+        # Only what is out at this hour: the tables change with the clock,
+        # and offering a species that cannot appear sends the pilot hunting
+        # for something that was never there.
+        found = species_on(self.source, const,
+                           self.p.session.rb("wTimeOfDay"))
         title = "HUNT WHAT?" if kind == "hunt" else "CATCH WHAT?"
         if kind == "catch" and not self.p.reader.balls():
             self._show("CATCH", ["no Poke Balls in the bag", "buy some at a Mart"])
