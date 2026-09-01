@@ -549,6 +549,15 @@ here is in bank 0x10 or below and verified to fire; `Session` checks the bank of
 each hook at startup so a future addition fails loudly instead of quietly never
 firing.
 
+## Running it on the phone itself
+
+The web UI above keeps the emulator on your Mac. If you want the whole thing on
+the device, that is a separate exploration:
+**[crystal-pilot-mobile](https://github.com/minormending/crystal-pilot-mobile)**
+— a browser build that boots the ROM on the phone, measured at 37x real time
+against this project's 470x. It proves the platform port; the task loop there is
+not yet finished.
+
 ## Limits
 
 - **The trainer sweep is not end-to-end verified.** Its parts are — trainer
