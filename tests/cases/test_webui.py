@@ -4,7 +4,8 @@ The HTTP layer is deliberately thin -- it reads a published snapshot and pushes
 commands onto a queue -- so the parts worth testing are request validation and
 the token check, both of which run without a socket.
 """
-from pilot.webui import WebPilot, make_handler
+from pilot.webui import (MAX_PRESS_FRAMES, TAP_FRAMES, WALK_FRAMES,
+                         WebPilot, make_handler)
 
 from ..harness import test
 
@@ -115,3 +116,47 @@ def _(t):
     t.ne(a.token, b.token, "tokens differ between runs")
     p3, c = _web(t, token="fixed")
     t.eq(c.token, "fixed", "an explicit token is honoured")
+
+
+@test("a press from the phone turns and steps, not just turns")
+def _(t):
+    """Gen 2 turns you before it walks you. A press in a direction you are not
+    already facing spends itself on the turn if it is short -- the six frames
+    this used to send never moved you at all, so the first tap of every change
+    of direction was wasted. A walk-length press does both."""
+    # route30 rather than the grass fixture: a step taken in grass can be eaten
+    # by a wild encounter, which would make this measure the wrong thing.
+    p, web = _web(t, fixture="route30")
+
+    def at():
+        loc = p.reader.location()
+        return (loc.x, loc.y)
+
+    p.nav.step("up")                  # settle on a walkable tile, facing up
+    before = at()
+    web._handle({"kind": "input", "button": "left", "frames": 6})
+    turned = at()
+    t.eq(turned, before, "six frames in a new direction only turn you")
+
+    web._handle({"kind": "input", "button": "left", "frames": WALK_FRAMES})
+    t.note(f"{before} -> six frames {turned} -> {WALK_FRAMES} frames {at()}")
+    t.ne(at(), before, "a walk-length press moves you")
+
+
+@test("the phone cannot pin a button down, or press one that does not exist")
+def _(t):
+    """The press blocks the pilot's loop while it runs, so the length is clamped
+    rather than trusted."""
+    p, web = _web(t)
+    held = []
+    p.session.tap = lambda button, hold=0, gap=0: held.append((button, hold))
+
+    web._handle({"kind": "input", "button": "left", "frames": 10_000})
+    web._handle({"kind": "input", "button": "left", "frames": 0})
+    web._handle({"kind": "input", "button": "left"})
+    web._handle({"kind": "input", "button": "self-destruct", "frames": WALK_FRAMES})
+
+    t.eq([h for _b, h in held], [MAX_PRESS_FRAMES, 1, TAP_FRAMES],
+         "clamped high, clamped low, and a default when unasked")
+    t.eq([b for b, _h in held], ["left", "left", "left"],
+         "the button that is not a button was refused")

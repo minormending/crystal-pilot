@@ -10,6 +10,9 @@
     --bg: #16161c; --panel: #23232c; --line: #34343f;
     --ink: #f2f2f5; --dim: #9a9aa8; --accent: #4f7fe8; --ok: #46b06a;
     --warn: #d8a13a; --bad: #d05a5a;
+    /* Keys need their own step up from the card they sit on: a
+       button the same colour as its container reads as a label. */
+    --key: #343442;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -77,15 +80,69 @@
   .stats dt { color: var(--dim); }
   .stats dd { margin: 0; }
 
-  /* Play controls: a D-pad that works with a thumb. */
-  .pad { display: grid; grid-template-columns: repeat(3, 56px);
-         grid-template-rows: repeat(3, 46px); gap: 6px; }
-  .pad button { min-height: 0; padding: 0; }
-  .pad .u { grid-area: 1 / 2; } .pad .l { grid-area: 2 / 1; }
-  .pad .r { grid-area: 2 / 3; } .pad .d { grid-area: 3 / 2; }
-  .face { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
-  .controls { display: flex; gap: 14px; justify-content: space-between;
-              align-items: center; flex-wrap: wrap; }
+  /* Play controls, laid out like the hardware, because that is what hands
+     expect: cross on the left, A above and right of B, menu keys centred
+     underneath. Capped and centred rather than justified to the card's edges --
+     on a wide screen space-between alone leaves a hole down the middle and the
+     cluster stops reading as one object. */
+  .gamepad { display: flex; align-items: center; justify-content: space-between;
+             gap: 10px; max-width: 330px; margin: 0 auto; padding: 2px 2px 0; }
+  [data-btn] { touch-action: none; user-select: none; -webkit-user-select: none; }
+
+  /* One connected cross: the cells touch, only the outer tips round off. */
+  .dpad { --cell: 48px; display: grid; flex: 0 0 auto;
+          grid-template-columns: repeat(3, var(--cell));
+          grid-template-rows: repeat(3, var(--cell)); }
+  .dpad button, .dpad .hub {
+    background: var(--key); border: 0; margin: 0; padding: 0; min-height: 0;
+    border-radius: 0; color: #dcdce6; font-size: 14px; line-height: 1;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); }
+  .dpad .u { grid-area: 1 / 2; border-radius: 11px 11px 0 0; }
+  .dpad .l { grid-area: 2 / 1; border-radius: 11px 0 0 11px; }
+  .dpad .r { grid-area: 2 / 3; border-radius: 0 11px 11px 0; }
+  .dpad .d { grid-area: 3 / 2; border-radius: 0 0 11px 11px; }
+  /* The hub joins the arms and is scenery only: it must never swallow a press
+     meant for one of them. */
+  .dpad .hub { grid-area: 2 / 2; pointer-events: none; display: flex;
+               align-items: center; justify-content: center; }
+  .dpad .hub::after { content: ""; width: 9px; height: 9px; border-radius: 50%;
+                      background: rgba(0, 0, 0, .22); }
+
+  /* Round, and on the diagonal A-over-B. */
+  .face { --btn: 60px; display: grid; flex: 0 0 auto;
+          grid-template-columns: repeat(2, var(--btn));
+          grid-template-rows: repeat(2, calc(var(--btn) * .78)); }
+  .face button { width: var(--btn); height: var(--btn); border-radius: 50%;
+                 min-height: 0; padding: 0; flex: 0 0 auto; border: 0;
+                 background: var(--key); font-weight: 700; font-size: 18px;
+                 color: #dcdce6;
+                 box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06); }
+  .face .a { grid-area: 1 / 2; align-self: start; }
+  .face .b { grid-area: 2 / 1; align-self: end; }
+
+  /* Slim slanted keys, the way the hardware marks Select and Start. The label
+     is un-skewed inside, so only the key is angled. */
+  .menus { display: flex; gap: 16px; justify-content: center; margin-top: 16px; }
+  .menus button { flex: 0 0 auto; min-height: 44px; padding: 0 22px; border: 0;
+                  border-radius: 7px; background: var(--key);
+                  transform: skewX(-16deg); display: flex;
+                  align-items: center; justify-content: center;
+                  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05); }
+  .menus button b { display: block; transform: skewX(16deg); font-weight: 600;
+                    font-size: 11px; letter-spacing: .11em;
+                    text-transform: uppercase; color: var(--dim); }
+
+  /* Held, not just tapped. The page-wide tap highlight is off, so without this
+     a press gives no sign it landed -- and these are keys you hold. */
+  .dpad button.held, .face button.held, .menus button.held,
+  .dpad button:active, .face button:active, .menus button:active {
+    background: var(--accent); color: #fff; }
+  .menus button.held b, .menus button:active b { color: #fff; }
+  .face button.held, .face button:active { transform: scale(.95); }
+  .dpad button.held, .dpad button:active {
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, .3); }
+  @media (prefers-reduced-motion: reduce) {
+    .face button.held, .face button:active { transform: none; } }
   .hide { display: none !important; }
   footer { color: var(--dim); font-size: 12px; padding: 6px 14px 20px;
            text-align: center; }
@@ -128,23 +185,26 @@
 
     <div class="card hide" id="controls">
       <h2>Play</h2>
-      <div class="controls">
-        <div class="pad">
-          <button class="u" data-btn="up">▲</button>
-          <button class="l" data-btn="left">◀</button>
-          <button class="r" data-btn="right">▶</button>
-          <button class="d" data-btn="down">▼</button>
+      <div class="gamepad">
+        <div class="dpad">
+          <button class="u" data-btn="up" aria-label="Up">▲</button>
+          <button class="l" data-btn="left" aria-label="Left">◀</button>
+          <span class="hub" aria-hidden="true"></span>
+          <button class="r" data-btn="right" aria-label="Right">▶</button>
+          <button class="d" data-btn="down" aria-label="Down">▼</button>
         </div>
         <div class="face">
-          <button data-btn="b">B</button>
-          <button data-btn="a">A</button>
+          <button class="a" data-btn="a">A</button>
+          <button class="b" data-btn="b">B</button>
         </div>
       </div>
-      <div class="row">
-        <button data-btn="select">Select</button>
-        <button data-btn="start">Start</button>
+      <div class="menus">
+        <button data-btn="select"><b>Select</b></button>
+        <button data-btn="start"><b>Start</b></button>
       </div>
-      <footer>One tap = one press. Fine for nudging; laggy for real play.</footer>
+      <footer>Press and hold a direction to keep walking — a tap in a new
+        direction only turns you. Every press is a round trip over the network,
+        so this is a nudge tool, not a way to play at speed.</footer>
     </div>
 
     <div class="card">
@@ -338,8 +398,44 @@ q("#startGrind").onclick = () => send({ kind: "grind", slot: choice.slot, level:
 q("#startTrainers").onclick = () => send({ kind: "trainers" });
 q("#saveBtn").onclick = async () => { await api("/api/save", {}); show("home"); poll(); };
 q("#toggleControls").onclick = () => q("#controls").classList.toggle("hide");
-document.querySelectorAll("[data-btn]").forEach(b => b.onclick = () =>
-  api("/api/input", { button: b.dataset.btn }));
+/* Press and hold, not tap.
+ *
+ * Gen 2 turns you before it walks you, and the six frames this used to send
+ * were spent entirely on the turn: the first press after any change of
+ * direction moved nowhere, and each one after that moved a single tile. Each
+ * request now asks for a press long enough to turn and step, and while a finger
+ * stays down the next goes out only once the last has come back --
+ * sequentially, so a slow link queues one press rather than a hundred. */
+const WALK_FRAMES = 16, TAP_FRAMES = 8;
+const DIRECTIONS = new Set(["up", "down", "left", "right"]);
+
+document.querySelectorAll("[data-btn]").forEach(el => {
+  const button = el.dataset.btn;
+  const frames = DIRECTIONS.has(button) ? WALK_FRAMES : TAP_FRAMES;
+  let holding = false;
+
+  async function run() {
+    while (holding) {
+      await api("/api/input", { button, frames });
+      // A confirm is one press however long it is held; only walking repeats.
+      if (!DIRECTIONS.has(button)) break;
+    }
+    holding = false;
+    el.classList.remove("held");
+  }
+  const down = (e) => {
+    e.preventDefault();
+    if (holding) return;
+    holding = true;
+    el.classList.add("held");
+    run();
+  };
+  const up = (e) => { e.preventDefault(); holding = false; };
+  el.addEventListener("pointerdown", down);
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+  el.addEventListener("pointerleave", up);
+});
 
 async function send(payload) {
   show("home");

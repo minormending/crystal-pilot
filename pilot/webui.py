@@ -31,6 +31,12 @@ from .wild import species_on
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 BUTTONS = ("up", "down", "left", "right", "a", "b", "start", "select")
+# A confirm or a menu step wants a short press; walking wants a long one. The
+# ceiling is here so a client cannot pin a button down indefinitely -- the press
+# blocks the pilot's loop while it runs.
+TAP_FRAMES = 8
+WALK_FRAMES = 16
+MAX_PRESS_FRAMES = 40
 
 
 @dataclass
@@ -163,7 +169,7 @@ class WebPilot:
     def _handle(self, cmd: dict) -> None:
         kind = cmd.get("kind")
         if kind == "input":
-            self._press(cmd.get("button", ""))
+            self._press(cmd.get("button", ""), cmd.get("frames", TAP_FRAMES))
         elif kind == "save":
             self._run_named("save", self._do_save)
         elif kind in ("grind", "hunt", "catch", "trainers"):
@@ -175,10 +181,19 @@ class WebPilot:
         self._refresh_status()
         self._refresh_frame(force=True)
 
-    def _press(self, button: str) -> None:
+    def _press(self, button: str, frames: int = TAP_FRAMES) -> None:
+        """Press a button for `frames` frames.
+
+        The length matters, and used to be fixed at six. Gen 2 turns you before
+        it walks you, and six frames are spent entirely on the turn -- so the
+        first press after any change of direction moved nowhere, and walking a
+        tile took two presses. A walk-length press does both, and the client
+        repeats while a finger stays down.
+        """
         if not self.allow_input or button not in BUTTONS:
             return
-        self.p.session.tap(button, hold=6, gap=2)
+        frames = max(1, min(MAX_PRESS_FRAMES, int(frames)))
+        self.p.session.tap(button, hold=frames, gap=2)
 
     def _do_save(self):
         ok, why = self.p.settle_for_save()
@@ -436,7 +451,8 @@ def make_handler(app: WebPilot):
                 app.submit(body)
                 self._json({"ok": True})
             elif path == "/api/input":
-                app.submit({"kind": "input", "button": body.get("button")})
+                app.submit({"kind": "input", "button": body.get("button"),
+                            "frames": body.get("frames", TAP_FRAMES)})
                 self._json({"ok": True})
             elif path == "/api/save":
                 app.submit({"kind": "save"})
