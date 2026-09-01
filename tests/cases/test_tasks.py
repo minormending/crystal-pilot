@@ -37,6 +37,60 @@ def _(t):
          "the caught species")
 
 
+@test("a caught Pokemon keeps the name the game gives it")
+def _(t):
+    """The nickname prompt defaults to YES, and a pilot that mashes A through
+    it ends up in the letter grid -- where mashing A spells AAAAA. Pokemon
+    should come back called what the game calls them."""
+    p = t.pilot("grass_cyndaquil")
+    t.give_balls(p)
+    res = p.catch(species="pidgey", save_when_done=False, max_encounters=60)
+    t.eq(res.status, "completed", f"catch outcome ({res.message})")
+    slot = p.reader.party_count() - 1
+    name = p.reader.nickname(slot)
+    t.note(f"caught mon in slot {slot + 1} is called {name}")
+    t.eq(name, "PIDGEY", "the caught mon's name")
+
+
+@test("the intro takes one of the game's own names, not the letter grid")
+def _(t):
+    """Starts a new game from scratch, because this is the one prompt with no
+    fixture behind it: the NAME menu appears once, during the intro.
+
+    Its default is NEW NAME, which opens the letter grid -- where an auto-pilot
+    that can only press A spells AAAAA. NamePlayer stores the presets below it
+    directly, with no naming screen at all.
+    """
+    from pilot.tasks.bootstrap import Bootstrap
+    rom = t.rom_copy("intro")
+    p = t.pilot_on(rom)
+    Bootstrap(p.session, p.reader, p.control, p.nav, log=t.note).run_intro()
+    name = p.reader.player_name()
+    t.note(f"the intro named the player {name}")
+    t.true(name, "the player has a name at all")
+    t.true(set(name) != {"A"}, f"not a mashed letter grid ({name})")
+    t.contains(("CHRIS", "MAT", "ALLAN", "JON", "KRIS", "AMANDA", "JUANA",
+                "JODI"), name, "one of the game's own preset names")
+
+
+@test("the new game these fixtures came from typed no names at all")
+def _(t):
+    """The fixtures are produced by the bootstrap, so they carry its choices.
+
+    Two prompts, both defaulting to something wrong: the intro's NAME menu
+    (default NEW NAME, which opens the letter grid) and GivePoke's nickname
+    question (default YES, same grid). An auto-pilot mashing A through either
+    one spells AAAAA.
+    """
+    p = t.pilot("grass_cyndaquil")
+    player = p.reader.player_name()
+    starter = p.reader.nickname(0)
+    t.note(f"player is {player}, starter is called {starter}")
+    t.true(player and set(player) != {"A"},
+           f"player name was chosen, not mashed out ({player})")
+    t.eq(starter, p.reader.mon(0).species_name, "the starter's name")
+
+
 @test("catch refuses up front when the bag has no balls")
 def _(t):
     p = t.pilot("grass_cyndaquil")
@@ -63,11 +117,14 @@ def _(t):
     res = p.hunt(species="hoppip", max_encounters=200)
     t.note(f"{res.status}: {res.stats}")
     t.eq(res.status, "completed", f"hunt outcome ({res.message})")
-    t.gt(res.stats["encounters"], 1, "should have rejected some encounters")
-    # Fighting every rejection burns HP and PP for nothing; that regression
-    # showed up as fled=0, fought=N.
-    t.gt(res.stats["fled"], 0, "encounters fled")
+    # Every encounter that was not the target had to be fled. Stated as an
+    # invariant rather than "at least one was fled", because how many appear
+    # before the target is luck -- and after a fixture rebuild the target
+    # turned up first, which failed a test that had never been about that.
+    # The deterministic version of this is the next test.
     t.eq(res.stats["fought"], 0, "encounters fought (should be none)")
+    t.eq(res.stats["fled"], res.stats["encounters"] - 1,
+         "every rejected encounter was fled")
 
 
 @test("hunt says what it did see when the target is not on the route")
@@ -76,6 +133,11 @@ def _(t):
     res = p.hunt(species="pikachu", max_encounters=25)
     t.eq(res.status, "blocked", "PIKACHU is not on Route 29")
     t.eq(res.stats["encounters"], 25, "should use its whole budget")
+    # PIKACHU is not on this route, so all 25 are rejections -- which makes
+    # this the run that proves rejections are fled and never fought, with no
+    # dependence on what the RNG happened to send.
+    t.eq(res.stats["fled"], 25, "all 25 rejections fled")
+    t.eq(res.stats["fought"], 0, "encounters fought (should be none)")
     seen = " ".join(res.notes)
     t.contains(seen, "seen:", "should report what turned up instead")
 

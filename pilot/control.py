@@ -7,7 +7,14 @@ cursor happened to be left by a previous battle.
 """
 from __future__ import annotations
 
+from .symbols import NAME_MENU_ITEMS, NAME_MENU_RIGHT, NAME_MENU_FIRST_PRESET
+
 TEXT_EVENTS = ("text_prompt", "text_wait", "text_aorb")
+
+# Routines that run immediately before the game asks "give it a nickname?".
+# Catching the question needs advance warning, because by the time the YesNoBox
+# is up it looks like any other yes/no -- and the default answer is YES.
+NICKNAME_EVENTS = ("give_poke", "ball_nickname", "ball_nickname_box")
 
 # wBattleMenuCursorPosition values, from BattleMenu in engine/battle/core.asm
 FIGHT, PKMN, PACK, RUN = 1, 2, 3, 4
@@ -17,6 +24,8 @@ class Control:
     def __init__(self, session, reader):
         self.s = session
         self.r = reader
+        self._nickname_armed = False
+        self._name_menu_pending = False
 
     # --- dialogue ----------------------------------------------------------
     def advance_text(self, max_taps: int = 400, quiet_frames: int = 120) -> int:
@@ -31,10 +40,25 @@ class Control:
         taps = 0
         quiet = 0
         per_tap = 12  # hold 4 + gap 8
+        self.nickname_prompt()      # before the clear below discards the warning
+        self.player_name_prompt()
         self.s.clear_events()
         while taps < max_taps and quiet < quiet_frames:
+            # The NAME menu is the one prompt that cannot be tapped through and
+            # then corrected, so it is checked before the tap, not after.
+            if self.player_name_prompt() or self.name_menu_pending:
+                taps += 1
+                quiet = 0
+                if self.name_menu_pending:
+                    self.s.tick(8)      # still drawing; tapping would take NEW NAME
+                continue
             self.s.tap("a", hold=4, gap=8)
             taps += 1
+            # Checked before the clear: the question and its box can land in
+            # the same window, and clearing would drop the box.
+            if self.nickname_prompt():
+                quiet = 0
+                continue
             if self.s.has_event(*TEXT_EVENTS):
                 self.s.clear_events()
                 quiet = 0
@@ -68,13 +92,129 @@ class Control:
                     return taps
             self.s.tap("a", hold=4, gap=8)
             taps += 1
+            self.nickname_prompt()
         return taps
 
-    def answer_yes_no(self, yes: bool = True) -> None:
-        """YesNoBox: cursor starts on YES; DOWN once selects NO."""
-        if not yes:
-            self.s.tap("down")
-        self.s.tap("a")
+    def answer_yes_no(self, yes: bool = True, settle: int = 24,
+                      tries: int = 14) -> bool:
+        """YesNoBox: cursor 1 is YES, 2 is NO.
+
+        Driven against the live cursor rather than by counting presses. The
+        hook fires on entry, before the box is interactive, so a blind DOWN can
+        be swallowed -- and then the A that follows answers YES. For a nickname
+        prompt that means the letter grid opens and mashing A spells AAAAA, so
+        the difference between "verified" and "probably fine" is the whole
+        point of the method.
+        """
+        want = 1 if yes else 2
+        self.s.tick(settle)
+        for _ in range(tries):
+            cur = self.s.rb("wMenuCursorY")
+            if cur == want:
+                self.s.tap("a")
+                return True
+            if cur == 0:                      # not drawn yet
+                self.s.tick(6)
+                continue
+            self.s.tap("down" if cur < want else "up", hold=4, gap=6)
+        return False
+
+    # --- naming ------------------------------------------------------------
+    def nickname_prompt(self, evs: set[str] | None = None) -> bool:
+        """Answer a pending "give it a nickname?" with NO.
+
+        Pokemon keep the names the game gives them. Arming happens on the
+        routine that precedes the question; the answer is given when the box
+        actually appears, which can be many frames later.
+
+        Pass `evs` when the caller has already drained the event queue, since
+        draining is destructive and the arming event would otherwise be lost.
+        Returns True when it answered, so callers skip their own A tap.
+        """
+        def fired(*names: str) -> bool:
+            if evs is None:
+                return self.s.has_event(*names)
+            return any(n in evs for n in names)
+
+        if fired(*NICKNAME_EVENTS) and not self._nickname_armed:
+            self._nickname_armed = True
+            if evs is None:
+                # A yes/no already in the queue belongs to an earlier prompt --
+                # "do you want this one?", say -- and answering that one again
+                # would use up the arming and let the real nickname box through
+                # on its default of YES. The question always follows a PrintText
+                # that waits for a button, so a later fire is guaranteed.
+                self.s.clear_events()
+        if not (self._nickname_armed and fired("yes_no")):
+            return False
+        self._nickname_armed = False
+        self.answer_yes_no(False)
+        if evs is None:
+            # The fired yes_no would otherwise still be sitting in the queue
+            # and answer the next prompt that comes along.
+            self.s.clear_events()
+        return True
+
+    def player_name_prompt(self, evs: set[str] | None = None,
+                           preset: int = 0) -> bool:
+        """Take the intro's NAME menu, if it is on its way or already up.
+
+        Returns True once a name has been picked. While the menu is pending but
+        not yet drawn, callers must not tap A: the menu blocks on a choice, and
+        a single stray A takes NEW NAME and drops the pilot into the letter
+        grid, where mashing A spells AAAAA.
+        """
+        def fired(*names: str) -> bool:
+            if evs is None:
+                return self.s.has_event(*names)
+            return any(n in evs for n in names)
+
+        if fired("name_player"):
+            self._name_menu_pending = True
+        if not self._name_menu_pending or not self.name_menu_open():
+            return False
+        self._name_menu_pending = False
+        picked = self.choose_player_name(preset)
+        if evs is None:
+            self.s.clear_events()
+        return picked
+
+    @property
+    def name_menu_pending(self) -> bool:
+        return self._name_menu_pending
+
+    def name_menu_open(self) -> bool:
+        """Is the intro's NAME menu on screen?
+
+        Matched on the menu's own shape rather than the cursor: NamePlayer
+        fires before the menu is drawn, and until it is, wMenuCursorY still
+        holds whatever the gender prompt left there.
+        """
+        return (self.s.rb("wMenuDataItems") == NAME_MENU_ITEMS
+                and self.s.rb("wMenuBorderRightCoord") == NAME_MENU_RIGHT
+                and self.s.rb("wMenuBorderTopCoord") == 0)
+
+    def choose_player_name(self, preset: int = 0, tries: int = 60) -> bool:
+        """Pick one of the game's own names instead of typing one.
+
+        Cursor 1 is NEW NAME, which opens the letter grid -- and an auto-pilot
+        mashing A through a letter grid spells AAAAA. Cursor 2 and below are
+        the presets, which NamePlayer stores directly with no naming screen at
+        all. (Leaving the grid empty also works: the game falls back to
+        CHRIS/KRIS. Picking a preset is the same outcome without the detour.)
+        """
+        want = NAME_MENU_FIRST_PRESET + max(0, preset)
+        for _ in range(tries):
+            if not self.name_menu_open():
+                self.s.tick(8)
+                continue
+            cur = self.s.rb("wMenuCursorY")
+            if cur == want:
+                self.s.tap("a")
+                self.s.tick(20)
+                return True
+            self.s.tap("down" if cur < want else "up", hold=4, gap=6)
+        return False
 
     # --- battle menu -------------------------------------------------------
     def _await_menu_cursor(self, tries: int = 25, settle: int = 40) -> bool:

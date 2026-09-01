@@ -113,6 +113,20 @@ class GameStateReader:
         self.s = session
         self.gd = gamedata
 
+    # --- names ---------------------------------------------------------------
+    def player_name(self) -> str:
+        return S.decode_text(self.s.rbytes("wPlayerName", S.PLAYER_NAME_LENGTH))
+
+    def nickname(self, slot: int) -> str:
+        """What this party member is called.
+
+        Equal to the species name unless something named it -- which is how a
+        run that mashed A through a "give it a nickname?" prompt gives itself
+        away.
+        """
+        base = self.s.sym.addr("wPartyMonNicknames") + slot * S.MON_NAME_LENGTH
+        return S.decode_text(self.s.rbytes(base, S.MON_NAME_LENGTH))
+
     # --- party -------------------------------------------------------------
     def party_count(self) -> int:
         return min(self.s.rb("wPartyCount"), S.MAX_PARTY)

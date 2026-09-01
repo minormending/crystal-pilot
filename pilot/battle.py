@@ -92,6 +92,11 @@ class BattleEngine:
             self.s.tick(4)
             spent += 4
             evs = set(self.s.drain_events())
+            # First, because a capture ends the battle with the nickname box
+            # still on screen: check in_battle before this and the box is left
+            # for the next A tap to answer with its default of YES.
+            if self.c.nickname_prompt(evs):
+                continue
             if not self.r.in_battle():
                 return "ended"
             if "battle_menu" in evs:
@@ -372,6 +377,8 @@ class BattleEngine:
             self.s.tick(4)
             spent += 4
             evs = set(self.s.drain_events())
+            if self.c.nickname_prompt(evs):
+                continue
             if "learn_move" in evs:
                 self._handle_learn_move(out)
                 continue

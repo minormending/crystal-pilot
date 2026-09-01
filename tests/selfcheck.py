@@ -42,6 +42,25 @@ MUTATIONS = [
         "strongest available move",
     ),
     (
+        # Without the interception the intro mashes A into the NAME menu,
+        # takes NEW NAME, and spells the player's name out of the grid.
+        "the intro is left to mash A through the NAME menu",
+        "pilot/control.py",
+        '        if fired("name_player"):\n            self._name_menu_pending = True',
+        '        if False:\n            self._name_menu_pending = True',
+        "intro takes one of the game",
+    ),
+    (
+        # The prompt's own default. Answering it the lazy way is not a crash --
+        # it produces a party of Pokemon called AAAAA, which only a test that
+        # reads the names back can see.
+        "nickname prompts are answered with their default of YES",
+        "pilot/control.py",
+        "        self._nickname_armed = False\n        self.answer_yes_no(False)",
+        "        self._nickname_armed = False\n        self.answer_yes_no(True)",
+        "keeps the name the game gives it",
+    ),
+    (
         "battle engine ignores an already-open menu",
         "pilot/battle.py",
         "        pending = \"menu\" if menu_open else None",

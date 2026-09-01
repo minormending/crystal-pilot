@@ -151,4 +151,54 @@ HOOK_ROUTINES = {
     "mon_fainted": "HandlePlayerMonFaint",
     "choose_mon": "ForcePlayerMonChoice",
     "lost_battle": "LostBattle",
+    # Naming. Every one of these prompts is A-confirmable, which is precisely
+    # the problem: mashing A through them names the player AAAAA and gives
+    # every catch a nickname typed the same way. Each hook fires just *before*
+    # its prompt, which is the only moment there is to decide differently.
+    "name_player": "NamePlayer",              # the NAME menu in the intro
+    "give_poke": "GivePoke",                  # the starter, and any gift mon
+    "ball_nickname": "PokeBallEffect.SkipPartyMonFriendBall",
+    "ball_nickname_box": "PokeBallEffect.SkipBoxMonFriendBall",
+    # Not acted on, but worth knowing about: reaching the letter grid at all
+    # means a prompt was answered the wrong way.
+    "naming_screen": "NamingScreen",
 }
+
+# The player-name menu, from ChrisNameMenuHeader in data/player_names.asm:
+# five items (NEW NAME plus four presets) drawn in the top-left ten columns.
+# Worth matching on rather than trusting the cursor, because wMenuCursorY holds
+# whatever the previous menu left there until this one is actually drawn.
+NAME_MENU_ITEMS = 5
+NAME_MENU_RIGHT = 10
+# Cursor 1 is NEW NAME, which opens the letter grid. 2 and below are the names
+# the game ships: CHRIS/MAT/ALLAN/JON, or KRIS/AMANDA/JUANA/JODI.
+NAME_MENU_FIRST_PRESET = 2
+
+# constants/text_constants.asm
+MON_NAME_LENGTH = 11
+PLAYER_NAME_LENGTH = 8
+
+
+def decode_text(raw) -> str:
+    """Decode the game's own character encoding into a Python string.
+
+    Only the part that appears in names: letters, digits, space, and the "@"
+    that terminates every string. Enough to read back what the game called
+    something, which is the only way to check that a naming prompt was
+    answered the way it was meant to be.
+    """
+    out = []
+    for b in raw:
+        if b == 0x50:                       # "@", end of string
+            break
+        if b == 0x7F:
+            out.append(" ")
+        elif 0x80 <= b <= 0x99:
+            out.append(chr(ord("A") + b - 0x80))
+        elif 0xA0 <= b <= 0xB9:
+            out.append(chr(ord("a") + b - 0xA0))
+        elif 0xF6 <= b <= 0xFF:
+            out.append(chr(ord("0") + b - 0xF6))
+        else:
+            out.append("?")
+    return "".join(out).strip()

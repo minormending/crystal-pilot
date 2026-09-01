@@ -50,13 +50,16 @@ class Bootstrap:
                 "to the main menu (is this a fresh build with no save?)"
             )
         self.log(f"intro: dialogue started after {reached} taps")
-        # Oak's speech, gender prompt and name menu are all A-confirmable
-        # defaults; advance until the world loads (map id becomes non-zero).
+        # Oak's speech and the gender prompt are A-confirmable defaults. The
+        # NAME menu is not: its default is NEW NAME, which opens the letter
+        # grid, and an auto-pilot mashing A through a letter grid ends up
+        # called AAAAA. advance_text takes one of the game's own names instead.
         for _ in range(30):
             self.c.advance_text(max_taps=500, quiet_frames=100)
             loc = self.r.location()
             if loc.key != (0, 0):
-                self.log(f"intro: world loaded at {self._where()}")
+                self.log(f"intro: world loaded at {self._where()}, "
+                         f"player named {self.r.player_name() or '(unnamed)'}")
                 return
             self.s.tap("a")
             self.s.tick(30)
@@ -115,7 +118,10 @@ class Bootstrap:
                 "have been in an unexpected state"
             )
         mon = self.r.mon(0)
-        self.log(f"starter: got {mon.species_name} Lv{mon.level}")
+        # The nickname prompt is declined in the text loop, so this should read
+        # back as the species name; log it either way rather than assume.
+        self.log(f"starter: got {mon.species_name} Lv{mon.level}, "
+                 f"called {self.r.nickname(0)}")
         # Elm has follow-up dialogue (nickname prompt, errand) before you can leave.
         self.n.walk_to(5, 3)
         self.n.face("up")

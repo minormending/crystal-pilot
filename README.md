@@ -82,6 +82,17 @@ plays the intro, picks a starter, and walks out to Route 29's grass:
 crystal-pilot bootstrap --starter cyndaquil     # or totodile / chikorita
 ```
 
+It does not type any names. The intro's NAME menu defaults to NEW NAME, which
+opens the letter grid, and the "give it a nickname?" prompts default to YES and
+open the same grid -- so an auto-pilot pressing A through the intro ends up
+called AAAAA with a starter to match. Instead the bootstrap takes one of the
+game's own names (`NamePlayer` stores the presets below NEW NAME directly, no
+naming screen involved) and declines every nickname prompt, so Pokemon keep the
+names the game gives them.
+
+If you would rather name your own character, play the intro yourself and use
+the other commands from your save; `bootstrap` exists for starting from nothing.
+
 ### Grind
 
 ```bash
