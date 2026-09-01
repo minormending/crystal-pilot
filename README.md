@@ -254,6 +254,19 @@ to be on the same wifi.
 
 `--token pilot` is worth using if you are typing it: the default is random.
 
+Tap **Controls** for the D-pad. It is laid out like the hardware, and the lit key
+below is LEFT actually being held:
+
+<img src="docs/screenshots/web-controls.png" alt="The web UI's on-screen controls, with LEFT held" width="330">
+
+**Press and hold** a direction to walk. Gen 2 turns you before it walks you, and
+the six frames this used to send were spent entirely on the turn — measured: the
+first press after any change of direction moved you nowhere, and each press after
+that moved exactly one tile. A press now lasts long enough to turn *and* step,
+and while a finger stays down the page asks for another as soon as the last comes
+back. Every press is still a round trip over wifi, so this is for nudging
+yourself out of a corner and taking over a battle, not for playing at speed.
+
 If the page will not load, it is almost always one of three things: the phone is
 on a different network (guest wifi is the classic trap), the router has AP/client
 isolation switched on, or macOS is asking whether to allow incoming connections
@@ -451,14 +464,14 @@ crystal-pilot backups restore --name 20260831-142320-grind-CYNDAQUIL-L25.state
 ## Tests
 
 ```bash
-./run-tests                    # everything (~65s)
+./run-tests                    # everything (~72s)
 ./run-tests -k catch           # just the ones matching a pattern
 ./run-tests -v                 # notes and tracebacks
 ./run-tests --self-check       # prove the suite can actually fail
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-49 tests. Most of them exist because of a specific bug that shipped and was
+71 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -480,15 +493,15 @@ contain game data — so generate them once after building your ROM:
 ./run-tests --build-fixtures
 ```
 
-The badge at the top covers the `data-tests` job. CI has no ROM, so the 50 tests
+The badge at the top covers the `data-tests` job. CI has no ROM, so the 55 tests
 that drive a real emulator skip themselves and the 16 that only read the
 disassembly's data files run: names, move data, map connections, warps, trainers
 and the timeline logic. The runner says so rather than reporting a bare pass:
 
 ```
-16 passed, 50 skipped, 0 failed  (0.1s)
+16 passed, 55 skipped, 0 failed  (0.1s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (50 tests need a ROM built from the disassembly)
+  (55 tests need a ROM built from the disassembly)
 ``` Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
@@ -499,17 +512,25 @@ mutation afterwards:
 
 ```
 caught  move choice counts presses instead of reading the cursor
-caught  catch watches a throw by tapping A blindly
+caught  the intro is left to mash A through the NAME menu
+caught  nickname prompts are answered with their default of YES
 caught  collision map reads the wrong quadrant of each block
-7 caught, 0 missed
+8 caught, 0 missed
 ```
 
 It has already earned its keep. Two tests passed mutations they should have
 caught: one only exercised a single battle, when the bug needed a second turn to
 appear, and one walked uniform grass, where reading the wrong quadrant of a
-block gives the right answer anyway. Both are now stronger. A third mutation was
-dropped rather than papered over — the code genuinely self-corrects there now,
-so there was no bug left to catch.
+block gives the right answer anyway. Both are now stronger.
+
+Two mutations have since been dropped rather than papered over, each with the
+reason recorded next to the list. One because the code genuinely self-corrects
+there now, so there was no bug left to catch. The other because rebuilding the
+fixtures moved the RNG out from under it: the bug needs a stray A press to land
+in the exact frames where the battle menu is up, and the current fixture no
+longer lines up that way. The guard it targeted stays in the code — but the
+suite no longer proves it, and saying so is better than a self-check that reads
+green by testing nothing.
 
 ## How it works
 

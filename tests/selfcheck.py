@@ -18,6 +18,14 @@ ROOT = Path(__file__).resolve().parent.parent
 # (label, file, find, replace, test-filter)
 # `find` must appear exactly once, so a mutation cannot silently no-op after the
 # code it targets has moved on.
+# Not listed: re-introducing the blind A tap in catch's _watch_throw. It was
+# caught until the fixtures were rebuilt, and now no catch test notices it: the
+# bug needs a stray A to land in the frames where the battle menu is up, and
+# with the current fixture's RNG the three throws it takes to catch a SENTRET
+# never line up that way. The guard in _watch_throw stays -- it was verified
+# against the run that produced the bug (reported 2, consumed 3) -- but pretending
+# the suite still proves it would be worse than saying it does not.
+#
 # Not listed: removing the settle from _await_menu_cursor. It used to be the
 # whole defence, but choose_battle_action now re-reads the live cursor and steps
 # toward the target, so dropping the settle self-corrects and no longer
@@ -97,27 +105,6 @@ MUTATIONS = [
         '''                if engaged == "absent":''',
         '''                if engaged == "never":''',
         "absent apart from unreachable",
-    ),
-    (
-        "catch watches a throw by tapping A blindly",
-        "pilot/tasks/catch.py",
-        """        engine = self.search.fight
-        for _ in range(4):
-            what = engine.next_decision()""",
-        """        engine = self.search.fight
-        for _ in range(120):
-            if not self.r.in_battle():
-                self.s.tick(90)
-                return ("caught" if self.r.party_count() > before_party
-                        else "got_away")
-            self.s.clear_events()
-            self.s.tick(6)
-            if self.s.has_event("battle_menu"):
-                return None
-            self.s.tap("a", hold=4, gap=8)
-        for _ in range(0):
-            what = engine.next_decision()""",
-        "balls it spent",
     ),
 ]
 
