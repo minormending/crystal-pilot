@@ -236,22 +236,34 @@ crystal-pilot serve
   so keep it on your own network. Ctrl-C to stop.
 ```
 
-Type that into any phone browser — Android or iPhone, no app to install. The
-address is your Mac's LAN address, so both devices need to be on the same wifi.
-`--token pilot` is worth using: the default is random, and random tokens are
-miserable to type on a phone.
+It also prints the URL as a QR code, so you can point a camera at the terminal
+instead of typing an IP and a token on a phone keypad. Any phone browser works,
+Android or iPhone, with nothing to install and no cable. Both devices just need
+to be on the same wifi.
+
+`--token pilot` is worth using if you are typing it: the default is random.
 
 If the page will not load, it is almost always one of three things: the phone is
-on a different network (guest wifi is a common trap), the router has client
-isolation turned on, or macOS is asking whether to allow incoming connections to
-Python. Over USB you can sidestep all of them with adb:
+on a different network (guest wifi is the classic trap), the router has AP/client
+isolation switched on, or macOS is asking whether to allow incoming connections
+to Python.
 
-```bash
-adb reverse tcp:8080 tcp:8080
-```
+Still wireless, in the order worth trying:
 
-then open `http://localhost:8080/?t=pilot` on the phone. (Untested here — no
-Android device to hand — but that is the standard reverse-forward.)
+1. Put both devices on the same wifi and re-check the IP the banner prints —
+   it is read from the interface holding the default route.
+2. Turn off AP isolation, or use a network where you can.
+3. Share the Mac's connection (System Settings → General → Sharing → Internet
+   Sharing) and join the phone to it. The Mac's address changes, so restart
+   `serve` to get the new URL.
+4. A private mesh VPN like Tailscale puts both devices on one network without
+   exposing anything publicly.
+
+Do not port-forward this to the internet. It is a token on a plain HTTP server,
+which is fine on your own network and nowhere else.
+
+Over USB, `adb reverse tcp:8080 tcp:8080` also works, but none of the above
+needs a cable.
 
 Opens that URL on your phone and you get the game screen live, plus the same
 tasks as buttons: pick a party member and a level for GRIND, or pick from the

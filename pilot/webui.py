@@ -98,11 +98,22 @@ class WebPilot:
         self._serve_forever_in_background()
         self._refresh_status()
         self._refresh_frame(force=True)
+        url = self.url()
         self._say("")
         self._say("  Open this on your phone, on the same wifi:")
         self._say("")
-        self._say(f"      {self.url()}")
+        self._say(f"      {url}")
         self._say("")
+        lines = qr_lines(url)
+        if lines:
+            self._say("  ...or point your camera at this:")
+            self._say("")
+            for line in lines:
+                self._say("      " + line)
+            self._say("")
+        else:
+            self._say("  (pip install qrcode for a scannable code)")
+            self._say("")
         self._say("  The token in the URL is the only thing protecting this,")
         self._say("  so keep it on your own network. Ctrl-C to stop.")
         self._say("")
@@ -323,6 +334,31 @@ class WebPilot:
         self._httpd = ThreadingHTTPServer((self.host, self.port), handler)
         self._httpd.daemon_threads = True
         threading.Thread(target=self._httpd.serve_forever, daemon=True).start()
+
+
+def qr_lines(url: str) -> list[str]:
+    """The URL as a scannable terminal QR code, or [] if qrcode is absent.
+
+    Typing http://192.168.1.x:8080/?t=... on a phone keypad is the worst part of
+    connecting, and pointing a camera at the terminal removes it entirely. The
+    dependency is optional so a missing package degrades to just the URL.
+    """
+    try:
+        import io as _io
+
+        import qrcode
+    except ImportError:
+        return []
+    try:
+        qr = qrcode.QRCode(border=1,
+                           error_correction=qrcode.constants.ERROR_CORRECT_L)
+        qr.add_data(url)
+        qr.make(fit=True)
+        buf = _io.StringIO()
+        qr.print_ascii(out=buf, invert=True)
+        return buf.getvalue().splitlines()
+    except Exception:
+        return []
 
 
 def local_ip() -> str:
