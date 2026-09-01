@@ -267,6 +267,13 @@ walk to (55,11)    could not reach (55,11); stopped at (55,9). Ledges are
                    one-way, and some tiles are only reachable the long way round
 ```
 
+Tapping a door, staircase, cave or warp panel walks onto it and goes through —
+those fire the moment you step on them. The transition takes a few frames longer
+than the step, so the pilot waits for it and reports where you came out
+(`through to Players House 1F at (9,0)`) rather than naming the tile you left
+from. A tap is a tile on the map in front of you, though: it will not route you
+through a door to somewhere on another map.
+
 If a menu is open, the same tap puts the **cursor** on the entry you tapped
 instead. It never presses A — a row misread by one would use the wrong item or
 toss the wrong Pokémon, and a cursor in the wrong place is something you can see
@@ -492,7 +499,7 @@ crystal-pilot backups restore --name 20260831-142320-grind-CYNDAQUIL-L25.state
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-82 tests. Most of them exist because of a specific bug that shipped and was
+83 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -514,15 +521,15 @@ contain game data — so generate them once after building your ROM:
 ./run-tests --build-fixtures
 ```
 
-The badge at the top covers the `data-tests` job. CI has no ROM, so the 66 tests
+The badge at the top covers the `data-tests` job. CI has no ROM, so the 67 tests
 that drive a real emulator skip themselves and the 16 that only read the
 disassembly's data files run: names, move data, map connections, warps, trainers
 and the timeline logic. The runner says so rather than reporting a bare pass:
 
 ```
-16 passed, 66 skipped, 0 failed  (0.1s)
+16 passed, 67 skipped, 0 failed  (0.1s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (66 tests need a ROM built from the disassembly)
+  (67 tests need a ROM built from the disassembly)
 ``` Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
@@ -536,7 +543,7 @@ caught  move choice counts presses instead of reading the cursor
 caught  the intro is left to mash A through the NAME menu
 caught  nickname prompts are answered with their default of YES
 caught  collision map reads the wrong quadrant of each block
-11 caught, 0 missed
+12 caught, 0 missed
 ```
 
 It has already earned its keep. Two tests passed mutations they should have

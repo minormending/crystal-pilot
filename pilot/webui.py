@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .collision import CollisionMap
 from .session import Budget
 from .tasks.base import TaskResult
 from .wild import species_on
@@ -311,10 +312,33 @@ class WebPilot:
         if not self.p.collision.calibrated:
             self.p.calibrate()
         before = self.p.reader.location()
+        # Read while we can still see this map: a door, staircase, cave or warp
+        # panel fires the moment you step on it, so if that is where we are
+        # headed the answer is a different map entirely.
+        try:
+            through = CollisionMap.is_warp(self.p.collision.collision_at(gx, gy))
+        except Exception:  # noqa: BLE001
+            through = False
         step = self.p.nav.walk_to(gx, gy)
         now = self.p.reader.location()
         res.stats = {"from": f"({before.x},{before.y})", "to": f"({now.x},{now.y})",
                      "wanted": f"({gx},{gy})"}
+        if through and (now.x, now.y) == (gx, gy):
+            # The transition runs for a few frames after the step that triggered
+            # it, so the walk finishes on the old map and the warp lands while
+            # the result is being written. Reporting "walked to (7,0)" there
+            # names a tile on a map you have already left.
+            if self.p.nav.wait_for_map_change(before.key):
+                arrived = self.p.reader.location()
+                res.status = "completed"
+                res.message = (
+                    f"through to "
+                    f"{self.p.gamedata.map_pretty(arrived.group, arrived.number)}"
+                    f" at ({arrived.x},{arrived.y})")
+                res.stats["to"] = f"({arrived.x},{arrived.y})"
+                res.stats["map"] = self.p.gamedata.map_pretty(arrived.group,
+                                                              arrived.number)
+                return res
         if (now.x, now.y) == (gx, gy):
             res.status = "completed"
             res.message = f"walked to ({gx},{gy})"

@@ -400,3 +400,37 @@ def _(t):
         time.sleep(0.3)
     t.note(f"{fps:,.0f} fps while idle")
     t.true(fps < 400, f"idle should be about real time, saw {fps:,.0f} fps")
+
+
+@test("tapping a doorway says which room it came out in")
+def _(t):
+    """Doors, stairs, caves and warp panels fire the moment you step on them,
+    but the transition runs for a few frames after that. The walk therefore
+    finishes on the old map and the warp lands while the result is being
+    written -- so it used to report "walked to (7,0)", naming a tile on a map
+    the player had already left."""
+    from pilot.collision import CollisionMap
+    from pilot.tasks.bootstrap import Bootstrap
+    p = t.pilot_on(t.rom_copy("doorway"))
+    Bootstrap(p.session, p.reader, p.control, p.nav, log=lambda *a: None).run_intro()
+    web = WebPilot(p, source=t.source, log=lambda *a, **k: None)
+    p.calibrate()
+    before = p.reader.location()
+
+    width, height = p.collision.map_size()
+    warps = [(x, y) for y in range(height) for x in range(width)
+             if CollisionMap.is_warp(p.collision.collision_at(x, y))]
+    t.gte(len(warps), 1, "the starting room has a way out")
+    gx, gy = warps[0]
+    tap = _tap_on(gx - before.x + PLAYER_TILE_X, gy - before.y + PLAYER_TILE_Y)
+
+    title, call = web._plan("tap", tap)
+    t.true(call is not None, f"the doorway should be walkable to: {title!r}")
+    res = call()
+    after = p.reader.location()
+    t.note(f"{res.message}  ({before.group}.{before.number} -> "
+           f"{after.group}.{after.number})")
+    t.eq(res.status, "completed", res.message)
+    t.ne(after.key, before.key, "we really did change map")
+    t.contains(res.message, "through to", "reported as going through, not arriving")
+    t.contains(res.stats["to"], str(after.x), "the coordinates are the new map's")

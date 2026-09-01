@@ -71,6 +71,13 @@ MUTATIONS = [
         'means something else',
     ),
     (
+        "a tap on a doorway reports the tile it left from",
+        "pilot/webui.py",
+        '        if through and (now.x, now.y) == (gx, gy):',
+        '        if False and (now.x, now.y) == (gx, gy):',
+        "doorway says which room",
+    ),
+    (
         # Without the interception the intro mashes A into the NAME menu,
         # takes NEW NAME, and spells the player's name out of the grid.
         "the intro is left to mash A through the NAME menu",
