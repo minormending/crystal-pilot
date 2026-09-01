@@ -152,3 +152,20 @@ def _(t):
     # reach it, and no frames may pass.
     t.eq(p.session.frame, before_frame, "frames advanced while the menu was open")
     t.eq(p.reader.location(), before_loc, "the player moved while the menu was open")
+
+
+@test("the species offered are ones a walking pilot could actually meet")
+def _(t):
+    """Two ways the list used to name Pokemon that never turn up: the whole
+    day's tables at once, and the water table on a route the pilot only ever
+    walks. Route 30 was offering POLIWAG to a pilot with no Surf."""
+    from pilot.wild import species_on
+    day = species_on(t.source, "ROUTE_30", 1)
+    night = species_on(t.source, "ROUTE_29", 2)
+    with_water = species_on(t.source, "ROUTE_30", 1, ("grass", "water"))
+    t.note(f"Route 30 by day: {day}")
+    t.false("POLIWAG" in day, "no water species in a grass hunt")
+    t.true("POLIWAG" in with_water, "still there when water is asked for")
+    t.note(f"Route 29 at night: {night}")
+    t.true("HOOTHOOT" in night, "the night table is what is offered after dark")
+    t.false("PIDGEY" in night, "and the day's species are not")

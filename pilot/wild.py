@@ -62,7 +62,8 @@ def load(source_root: str) -> dict[str, list[dict]]:
 
 
 def species_on(source_root: str, map_const: str,
-               time_of_day: int | None = None) -> list[str]:
+               time_of_day: int | None = None,
+               kinds: tuple[str, ...] = ("grass",)) -> list[str]:
     """Distinct species on a map, commonest first.
 
     Frequency is approximated by how many slots a species occupies, which is
@@ -72,8 +73,13 @@ def species_on(source_root: str, map_const: str,
     now. Without it the list spans the whole day, which is how a menu came to
     offer PIDGEY at midnight on a route where nothing but HOOTHOOT appears
     after dark -- the fruitless hunt this module exists to prevent.
+
+    Grass only by default, for the same reason. The pilot walks; it does not
+    surf or fish, so a route's water table is full of Pokemon it can pace the
+    grass all day without ever meeting. Route 30 was offering POLIWAG.
     """
-    entries = load(str(source_root)).get(map_const, [])
+    entries = [e for e in load(str(source_root)).get(map_const, [])
+               if e["kind"] in kinds]
     if time_of_day is not None:
         entries = [e for e in entries
                    if e["time"] is None or e["time"] == time_of_day]
