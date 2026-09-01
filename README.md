@@ -254,6 +254,27 @@ to be on the same wifi.
 
 `--token pilot` is worth using if you are typing it: the default is random.
 
+**Tap the screen to walk there.** The overworld is drawn in 16×16 tiles, so the
+screen is 10×9 of them and the player is always the one at (4, 4) — the camera
+keeps them centred rather than clamping at map edges, verified on three maps at
+three different positions. That makes a tap a map coordinate, and the pilot
+already has the collision map and the BFS to path to it, ledges and all. It says
+so when it cannot:
+
+```
+walk to (55,9)     from (53,11) -> (55,9)
+walk to (55,11)    could not reach (55,11); stopped at (55,9). Ledges are
+                   one-way, and some tiles are only reachable the long way round
+```
+
+If a menu is open, the same tap puts the **cursor** on the entry you tapped
+instead. It never presses A — a row misread by one would use the wrong item or
+toss the wrong Pokémon, and a cursor in the wrong place is something you can see
+and correct. Whether a menu is open is read from `wWindowStackSize`, which the
+game pushes and pops, rather than from the menu cursor: out on the map the
+cursor keeps whatever value the last menu left in it, and treating that as an
+open menu would send DOWN to the player instead, walking them into the grass.
+
 Tap **Controls** for the D-pad. It is laid out like the hardware, and the lit key
 below is LEFT actually being held:
 
@@ -471,7 +492,7 @@ crystal-pilot backups restore --name 20260831-142320-grind-CYNDAQUIL-L25.state
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-71 tests. Most of them exist because of a specific bug that shipped and was
+75 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -493,15 +514,15 @@ contain game data — so generate them once after building your ROM:
 ./run-tests --build-fixtures
 ```
 
-The badge at the top covers the `data-tests` job. CI has no ROM, so the 55 tests
+The badge at the top covers the `data-tests` job. CI has no ROM, so the 59 tests
 that drive a real emulator skip themselves and the 16 that only read the
 disassembly's data files run: names, move data, map connections, warps, trainers
 and the timeline logic. The runner says so rather than reporting a bare pass:
 
 ```
-16 passed, 55 skipped, 0 failed  (0.1s)
+16 passed, 59 skipped, 0 failed  (0.1s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (55 tests need a ROM built from the disassembly)
+  (59 tests need a ROM built from the disassembly)
 ``` Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
