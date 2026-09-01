@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .session import Budget
+from .tasks.base import TaskResult
 from .wild import species_on
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
@@ -37,6 +38,18 @@ BUTTONS = ("up", "down", "left", "right", "a", "b", "start", "select")
 TAP_FRAMES = 8
 WALK_FRAMES = 16
 MAX_PRESS_FRAMES = 40
+
+# Tapping the screen. The overworld is drawn in 16x16 tiles, so the 160x144
+# screen is 10x9 of them, and the player is always the one at (4, 4) -- verified
+# on three maps at three different positions, because the camera keeps them
+# centred rather than clamping at map edges.
+SCREEN_TILES_X, SCREEN_TILES_Y = 10, 9
+PLAYER_TILE_X, PLAYER_TILE_Y = 4, 4
+# Menus are drawn on the 8x8 text grid, two rows per entry, with the first entry
+# two rows below the window's top edge.
+TEXT_ROWS = 18
+MENU_FIRST_ROW = 2
+MENU_ROW_STRIDE = 2
 
 
 @dataclass
@@ -172,7 +185,7 @@ class WebPilot:
             self._press(cmd.get("button", ""), cmd.get("frames", TAP_FRAMES))
         elif kind == "save":
             self._run_named("save", self._do_save)
-        elif kind in ("grind", "hunt", "catch", "trainers"):
+        elif kind in ("grind", "hunt", "catch", "trainers", "tap"):
             self._run_task(kind, cmd)
         else:
             # Say so rather than doing nothing: silently ignoring it would leave
@@ -194,6 +207,80 @@ class WebPilot:
             return
         frames = max(1, min(MAX_PRESS_FRAMES, int(frames)))
         self.p.session.tap(button, hold=frames, gap=2)
+
+    # --- tapping the screen ---------------------------------------------------
+    def _window_open(self) -> bool:
+        """Is a menu or textbox actually on screen right now?
+
+        wWindowStackSize is pushed and popped by the game's own window code, so
+        unlike the menu cursor it cannot be left over from a menu that closed
+        minutes ago. That distinction matters here: mistaking the overworld for
+        a menu means sending DOWN to move a cursor that is not there, which
+        walks the player instead -- into grass, and into a wild battle.
+        """
+        return self.p.session.rb("wWindowStackSize") > 0
+
+    def _tap_target(self, cmd: dict) -> tuple[int, int] | None:
+        """The tapped screen tile, from fractions of the screen's width/height.
+
+        Fractions rather than pixels because the phone scales the picture to fit
+        its own screen, and only the browser knows by how much.
+        """
+        try:
+            fx, fy = float(cmd.get("x", -1)), float(cmd.get("y", -1))
+        except (TypeError, ValueError):
+            return None
+        if not (0.0 <= fx <= 1.0 and 0.0 <= fy <= 1.0):
+            return None
+        return (min(SCREEN_TILES_X - 1, int(fx * SCREEN_TILES_X)),
+                min(SCREEN_TILES_Y - 1, int(fy * SCREEN_TILES_Y)))
+
+    def _walk_to_tap(self, goal: tuple[int, int]) -> TaskResult:
+        res = TaskResult()
+        gx, gy = goal
+        if not self.p.collision.calibrated:
+            self.p.calibrate()
+        before = self.p.reader.location()
+        step = self.p.nav.walk_to(gx, gy)
+        now = self.p.reader.location()
+        res.stats = {"from": f"({before.x},{before.y})", "to": f"({now.x},{now.y})",
+                     "wanted": f"({gx},{gy})"}
+        if (now.x, now.y) == (gx, gy):
+            res.status = "completed"
+            res.message = f"walked to ({gx},{gy})"
+        elif getattr(step, "battle", False) or self.p.reader.in_battle():
+            res.status = "blocked"
+            res.message = f"a wild battle interrupted the walk at ({now.x},{now.y})"
+        else:
+            res.status = "blocked"
+            res.message = (f"could not reach ({gx},{gy}); stopped at "
+                           f"({now.x},{now.y}). Ledges are one-way, and some "
+                           f"tiles are only reachable the long way round")
+        return res
+
+    def _move_cursor_to_row(self, row: int, entries: int) -> TaskResult:
+        """Step an open menu's cursor to `row`, without confirming anything.
+
+        Deliberately never presses A. If the row arithmetic is off the cursor
+        lands next to what you meant and you can see that; pressing A on the
+        wrong entry could use an item or throw away a Pokemon.
+        """
+        res = TaskResult()
+        s = self.p.session
+        for _ in range(entries + 2):
+            if not self._window_open():
+                res.status = "blocked"
+                res.message = "the menu closed"
+                return res
+            cur = s.rb("wMenuCursorY")
+            if cur == row:
+                res.status = "completed"
+                res.message = f"cursor on entry {row}"
+                return res
+            s.tap("down" if cur < row else "up", hold=4, gap=6)
+        res.status = "blocked"
+        res.message = "the cursor would not settle on that entry"
+        return res
 
     def _do_save(self):
         ok, why = self.p.settle_for_save()
@@ -257,6 +344,36 @@ class WebPilot:
                 return f"already Lv{party[slot].level}", None
             return (f"grind {party[slot].species_name} to Lv{level}",
                     lambda: self.p.grind(slot=slot, to_level=level))
+        if kind == "tap":
+            tile = self._tap_target(cmd)
+            if tile is None:
+                return "that tap was off the screen", None
+            tx, ty = tile
+            if self._window_open():
+                # A menu is up, so the tap means "put the cursor there" rather
+                # than "walk there" -- there is no map on screen to walk on.
+                cursor = self.p.session.rb("wMenuCursorY")
+                if cursor == 0:
+                    return "that is a textbox, not a menu -- press A", None
+                entries = max(1, self.p.session.rb("wMenuDataItems"))
+                top = self.p.session.rb("wMenuBorderTopCoord")
+                # Screen fractions came in as 16px tiles; menus live on the 8px
+                # text grid, so the row is recovered at that resolution.
+                text_row = int(ty * (TEXT_ROWS / SCREEN_TILES_Y))
+                row = (text_row - top - MENU_FIRST_ROW) // MENU_ROW_STRIDE + 1
+                row = max(1, min(entries, row))
+                return (f"cursor to entry {row}",
+                        lambda: self._move_cursor_to_row(row, entries))
+            if self.p.reader.in_battle():
+                return "that is a battle, not the map", None
+            loc = self.p.reader.location()
+            goal = (loc.x + tx - PLAYER_TILE_X, loc.y + ty - PLAYER_TILE_Y)
+            if goal == (loc.x, loc.y):
+                return "you are already standing there", None
+            if min(goal) < 0:
+                return "that is off the edge of the map", None
+            return (f"walk to ({goal[0]},{goal[1]})",
+                    lambda: self._walk_to_tap(goal))
         if kind in ("hunt", "catch"):
             shiny = bool(cmd.get("shiny"))
             species = cmd.get("species") or None

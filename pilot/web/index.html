@@ -39,6 +39,8 @@
     image-rendering: pixelated; image-rendering: crisp-edges;
   }
 
+  .screen img { cursor: crosshair; }
+  .tiphint { color: var(--dim); font-size: 12px; margin: 8px 2px 0; text-align: center; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   button {
     font: inherit; color: var(--ink); background: var(--panel);
@@ -156,6 +158,8 @@
 
 <main>
   <div class="screen"><img id="screen" alt="game screen"></div>
+  <p class="tiphint" id="tapHint">Tap the screen to walk there — or to move a
+    menu cursor onto an entry.</p>
 
   <div class="card" id="statusCard">
     <div class="status">
@@ -282,6 +286,23 @@ async function api(path, body) {
   const res = await fetch(path + (path.includes("?") ? "&" : "?") + "t=" + token, opts);
   return res.json().catch(() => ({}));
 }
+
+/* Tap the picture to act on that spot.
+ *
+ * The overworld is drawn in 16x16 tiles with the player always on the one at
+ * (4, 4), so a tap is a map coordinate the pilot can path to with the collision
+ * map it already builds. Sent as fractions of the picture rather than pixels,
+ * because the phone scales it to fit and only the browser knows by how much.
+ *
+ * When a menu is open the same tap means "put the cursor on that entry"; the
+ * server decides which, since only it can see whether a window is up. */
+q("#screen").addEventListener("click", (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  send({ kind: "tap",
+         x: (e.clientX - r.left) / r.width,
+         y: (e.clientY - r.top) / r.height });
+});
 
 // The screen is a plain <img> repointed on a timer: no websocket to babysit,
 // and the browser handles caching and decoding.

@@ -4,8 +4,9 @@ The HTTP layer is deliberately thin -- it reads a published snapshot and pushes
 commands onto a queue -- so the parts worth testing are request validation and
 the token check, both of which run without a socket.
 """
-from pilot.webui import (MAX_PRESS_FRAMES, TAP_FRAMES, WALK_FRAMES,
-                         WebPilot, make_handler)
+from pilot.webui import (MAX_PRESS_FRAMES, PLAYER_TILE_X, PLAYER_TILE_Y,
+                         SCREEN_TILES_X, SCREEN_TILES_Y, TAP_FRAMES,
+                         WALK_FRAMES, WebPilot, make_handler)
 
 from ..harness import test
 
@@ -160,3 +161,72 @@ def _(t):
          "clamped high, clamped low, and a default when unasked")
     t.eq([b for b, _h in held], ["left", "left", "left"],
          "the button that is not a button was refused")
+
+
+def _tap_on(tile_x, tile_y):
+    """A tap in the middle of a screen tile, as the browser sends it."""
+    return {"kind": "tap",
+            "x": (tile_x + 0.5) / SCREEN_TILES_X,
+            "y": (tile_y + 0.5) / SCREEN_TILES_Y}
+
+
+@test("tapping the map walks there")
+def _(t):
+    p, web = _web(t, fixture="route30")
+    start = p.reader.location()
+    # One tile up from the player, who is always drawn at (4, 4).
+    web._handle(_tap_on(PLAYER_TILE_X, PLAYER_TILE_Y - 1))
+    now = p.reader.location()
+    t.note(f"({start.x},{start.y}) -> ({now.x},{now.y})")
+    t.eq((now.x, now.y), (start.x, start.y - 1), "walked one tile up")
+
+
+@test("tapping several tiles away paths around what is in the way")
+def _(t):
+    p, web = _web(t, fixture="route30")
+    start = p.reader.location()
+    web._handle(_tap_on(PLAYER_TILE_X, PLAYER_TILE_Y - 3))
+    now = p.reader.location()
+    t.note(f"({start.x},{start.y}) -> ({now.x},{now.y})")
+    t.eq((now.x, now.y), (start.x, start.y - 3), "walked three tiles up")
+
+
+@test("a tap that cannot mean anything is refused, not guessed at")
+def _(t):
+    p, web = _web(t, fixture="route30")
+    for bad in ({"x": 1.4, "y": 0.5}, {"x": -0.1, "y": 0.5}, {"x": "left", "y": 0.5}):
+        title, call = web._plan("tap", bad)
+        t.true(call is None, f"{bad} should be refused")
+        t.contains(title, "off the screen", "says why")
+    title, call = web._plan("tap", _tap_on(PLAYER_TILE_X, PLAYER_TILE_Y))
+    t.true(call is None, "tapping yourself is not a walk")
+    t.contains(title, "already standing", "says why")
+
+
+@test("tapping an open menu moves the cursor and confirms nothing")
+def _(t):
+    """The dangerous version of this feature presses A. It never does: a wrong
+    row would use an item or toss something. It also has to tell a real menu
+    from the overworld -- wMenuCursorY keeps its last value out on the map, so
+    the window stack is what decides."""
+    p, web = _web(t, fixture="route30")
+    p.control.open_start_menu()
+    p.session.tick(30)
+    t.true(web._window_open(), "the START menu is up")
+    before_pos = p.reader.location()
+    before_row = p.session.rb("wMenuCursorY")
+
+    # Two entries further down the menu, in text rows.
+    top = p.session.rb("wMenuBorderTopCoord")
+    want_row = before_row + 2
+    text_row = top + 2 + (want_row - 1) * 2
+    web._handle({"kind": "tap", "x": 0.5,
+                 "y": (text_row + 0.5) / 18})
+
+    after_row = p.session.rb("wMenuCursorY")
+    after_pos = p.reader.location()
+    t.note(f"cursor {before_row} -> {after_row}")
+    t.eq(after_row, want_row, "cursor moved to the tapped entry")
+    t.true(web._window_open(), "the menu is still open -- nothing was confirmed")
+    t.eq((after_pos.x, after_pos.y), (before_pos.x, before_pos.y),
+         "and the player did not walk")
