@@ -4,9 +4,10 @@ The HTTP layer is deliberately thin -- it reads a published snapshot and pushes
 commands onto a queue -- so the parts worth testing are request validation and
 the token check, both of which run without a socket.
 """
-from pilot.webui import (MAX_PRESS_FRAMES, PLAYER_TILE_X, PLAYER_TILE_Y,
-                         SCREEN_TILES_X, SCREEN_TILES_Y, TAP_FRAMES,
-                         WALK_FRAMES, WebPilot, make_handler)
+from pilot.webui import (MAX_PRESS_FRAMES, MENU_FIRST_ROW, MENU_ROW_STRIDE,
+                         PLAYER_TILE_X, PLAYER_TILE_Y, SCREEN_TILES_X,
+                         SCREEN_TILES_Y, TAP_FRAMES, TEXT_ROWS, WALK_FRAMES,
+                         WebPilot, make_handler)
 
 from ..harness import test
 
@@ -230,3 +231,52 @@ def _(t):
     t.true(web._window_open(), "the menu is still open -- nothing was confirmed")
     t.eq((after_pos.x, after_pos.y), (before_pos.x, before_pos.y),
          "and the player did not walk")
+
+
+@test("a menu tap picks the entry it was aimed at, odd rows included")
+def _(t):
+    """The tap used to be rounded to the 16px tile the overworld is drawn in,
+    which halves the resolution menus are laid out at. Two in five of the game's
+    menus start on an odd text row, and on those every entry but the first
+    resolved to the one above it."""
+    p, web = _web(t, fixture="route30")
+    p.control.open_start_menu()
+    p.session.tick(30)
+    t.true(web._window_open(), "the START menu is up")
+    entries = p.session.rb("wMenuDataItems")
+
+    for top in (0, 1):        # a real even-top menu, and an odd-top one
+        p.session.wb("wMenuBorderTopCoord", top)
+        picked = []
+        for row in range(1, entries + 1):
+            text_row = top + MENU_FIRST_ROW + (row - 1) * MENU_ROW_STRIDE
+            if text_row >= TEXT_ROWS:
+                break
+            title, call = web._plan("tap", {"x": 0.5,
+                                            "y": (text_row + 0.5) / TEXT_ROWS})
+            t.true(call is not None, f"row {row} should plan something: {title}")
+            picked.append(int(title.rsplit(" ", 1)[1]))
+        t.note(f"top={top}: aimed at {list(range(1, len(picked) + 1))}, got {picked}")
+        t.eq(picked, list(range(1, len(picked) + 1)),
+             f"every entry of a menu starting on row {top}")
+
+
+@test("a command that cannot be parsed does not take the pilot down")
+def _(t):
+    """The loop's only guard was for KeyboardInterrupt, so anything else raised
+    out of it into the finally that stops the emulator and writes the save. The
+    HTTP layer had already replied ok, so a typo in a request ended a running
+    session and said nothing."""
+    p, web = _web(t)
+    for bad in ({"kind": "input", "button": "left", "frames": "fast"},
+                {"kind": "grind", "slot": "second", "level": 9},
+                {"kind": "grind", "slot": 0, "level": "twenty"},
+                {"kind": "tap", "x": None, "y": None}):
+        try:
+            web._handle(bad)
+            raised = None
+        except Exception as e:          # noqa: BLE001
+            raised = f"{type(e).__name__}: {e}"
+        t.true(raised is None, f"{bad} raised out of _handle ({raised})")
+    # and the emulator is still there to be used
+    t.gte(p.reader.party_count(), 1, "the pilot survived")

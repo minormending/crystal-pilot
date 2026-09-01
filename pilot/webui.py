@@ -144,7 +144,18 @@ class WebPilot:
                 except queue.Empty:
                     cmd = None
                 if cmd is not None:
-                    self._handle(cmd)
+                    # A command is whatever JSON a client sent. Nothing in it is
+                    # worth ending the session over: an unparseable field used to
+                    # raise out of here, past the loop, into the finally below --
+                    # which stops the emulator and writes the save. A typo in a
+                    # curl command would end a running grind, and the HTTP layer
+                    # had already answered {"ok": true}.
+                    try:
+                        self._handle(cmd)
+                    except Exception as e:  # noqa: BLE001
+                        self._finish({"ok": False,
+                                      "message": f"could not do that: "
+                                                 f"{type(e).__name__}: {e}"})
                     continue
                 self.p.session.pyboy.tick(1, True)
                 ticks += 1
@@ -205,7 +216,11 @@ class WebPilot:
         """
         if not self.allow_input or button not in BUTTONS:
             return
-        frames = max(1, min(MAX_PRESS_FRAMES, int(frames)))
+        try:
+            frames = int(frames)
+        except (TypeError, ValueError):
+            frames = TAP_FRAMES
+        frames = max(1, min(MAX_PRESS_FRAMES, frames))
         self.p.session.tap(button, hold=frames, gap=2)
 
     # --- tapping the screen ---------------------------------------------------
@@ -219,6 +234,22 @@ class WebPilot:
         walks the player instead -- into grass, and into a wild battle.
         """
         return self.p.session.rb("wWindowStackSize") > 0
+
+    def _tap_row(self, cmd: dict) -> int | None:
+        """The tapped row on the 8px text grid, for menus.
+
+        Not derived from the 16px tile: that halves the resolution, and menus
+        are laid out in text rows. Two in five of the game's menus start on an
+        odd row, and on those the rounding put the cursor one entry above the
+        one that was tapped, for every entry but the first.
+        """
+        try:
+            fy = float(cmd.get("y", -1))
+        except (TypeError, ValueError):
+            return None
+        if not (0.0 <= fy <= 1.0):
+            return None
+        return min(TEXT_ROWS - 1, int(fy * TEXT_ROWS))
 
     def _tap_target(self, cmd: dict) -> tuple[int, int] | None:
         """The tapped screen tile, from fractions of the screen's width/height.
@@ -299,7 +330,17 @@ class WebPilot:
         self._finish(result)
 
     def _run_task(self, kind: str, cmd: dict) -> None:
-        title, call = self._plan(kind, cmd)
+        # Planning reads fields straight out of the request, so it is as capable
+        # of raising on a bad one as the task itself -- and it sat outside the
+        # guard below, which is how an unparseable slot number reached the run
+        # loop and stopped the session.
+        try:
+            title, call = self._plan(kind, cmd)
+        except Exception as e:  # noqa: BLE001
+            self._finish({"ok": False,
+                          "message": f"could not read that request: "
+                                     f"{type(e).__name__}: {e}"})
+            return
         if call is None:
             self._finish({"ok": False, "message": title})
             return
@@ -357,9 +398,9 @@ class WebPilot:
                     return "that is a textbox, not a menu -- press A", None
                 entries = max(1, self.p.session.rb("wMenuDataItems"))
                 top = self.p.session.rb("wMenuBorderTopCoord")
-                # Screen fractions came in as 16px tiles; menus live on the 8px
-                # text grid, so the row is recovered at that resolution.
-                text_row = int(ty * (TEXT_ROWS / SCREEN_TILES_Y))
+                text_row = self._tap_row(cmd)
+                if text_row is None:
+                    return "that tap was off the screen", None
                 row = (text_row - top - MENU_FIRST_ROW) // MENU_ROW_STRIDE + 1
                 row = max(1, min(entries, row))
                 return (f"cursor to entry {row}",
