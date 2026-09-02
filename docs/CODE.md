@@ -520,7 +520,7 @@ exactly the bug the mobile port shipped and had to fix.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py @ da931fc4e9c4 -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py @ 15849e9edc3d -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -587,12 +587,9 @@ engine uses internally and passes the answer, which is right in both cases.
 battle to be played out; bailing on low HP would be answering a different
 question. Pass `--flee-below` to get the escaping policy.
 
-**`--weaken-to` can knock out the thing you told it to catch.** Nothing here
-remembers how hard it hits, so the first swing is unguarded — and against a
-much weaker target the gentlest move available is still lethal. Found by the
-test: a Lv15 Quilava with `--weaken-to 0.4` one-shot a Lv2 Hoppip. The command
-defaults to not attacking at all for that reason, and the mobile port carries a
-learned-damage guard the searching `catch` task here would also benefit from.
+**Weakening is guarded**, so `--weaken-to` will not knock out the thing you asked for once it has learned what one swing does — see
+[Catching](#catching) for the guard itself. `capture` starts that
+memory cold, which is why it does not weaken unless asked.
 
 **`heal` reports an already-healthy party as completed**, not as an error —
 nothing needed doing, which is the outcome the caller wanted. `--force` goes
@@ -611,9 +608,15 @@ flowchart TD
     M -- no --> FL["flee, look again"]
     FL --> A
     M -- yes --> W{"weaken_to set and<br/>HP above it?"}
-    W -- yes --> CH["chip with the weakest<br/>damaging move"]
-    CH -- "it fainted" --> FA["fainted"]
-    CH --> W
+    W -- yes --> G{"could one swing<br/>finish it from here?"}
+    G -- "yes: hp &le; biggest hit seen" --> B
+    G -- no --> C{"MAX_CHIPS swings<br/>with nothing to show?"}
+    C -- yes --> B
+    C -- no --> CH["swing with the<br/>gentlest move"]
+    CH -- "no gentle move" --> B
+    CH -- "it fainted" --> FA["fainted<br/>(and the guard learns from it)"]
+    CH -- "it survived" --> LN["remember what that swing dealt"]
+    LN --> W
     W -- no --> B{"balls left?"}
     B -- no --> NB["no_balls"]
     B -- yes --> TH["throw"]
@@ -623,13 +626,86 @@ flowchart TD
     WT -- "got away" --> GA["got_away"]
 ```
 
+**Weakening is guarded by what it has already done.** A ball's odds turn on how
+much HP is left, so weakening first is worth real balls — but a knockout loses
+the target outright, and the HP threshold is not a safe stopping point on its
+own. Against something small, one swing carries it from above the line straight
+to zero.
+
+`Damage` is the guard: the biggest hit one swing has been seen to land. Nothing
+reads the damage formula, so that measurement is the only evidence available,
+and the rule is just *never swing at something with no more HP than this*. A
+knockout is a measurement too, and the most useful one — if the target had 11 HP
+and one swing took all of it, a swing does at least 11. That is why a hunt keeps
+one guard across every encounter rather than one per battle: the first target is
+the swing that cannot be guarded, and losing it protects all the rest. `capture`
+acts on a single battle and therefore starts cold, which is why it does not
+weaken unless asked.
+
+```mermaid
+flowchart TD
+    A[enemy above the HP threshold?] -->|no| T[throw the ball]
+    A -->|yes| G{could one swing<br/>finish it from here?}
+    G -->|yes: hp &le; biggest hit seen| S[stop weakening, throw now]
+    G -->|no| C{swung MAX_CHIPS times<br/>with nothing to show?}
+    C -->|yes| S
+    C -->|no| M{a gentle move<br/>with PP left?}
+    M -->|no| S
+    M -->|yes| H[swing with the gentlest one]
+    H --> D[dealt = hp before &minus; hp now]
+    D --> L[remember it if it is the biggest yet]
+    L --> A
+    H -->|it fainted| K[remember hp before:<br/>a swing does at least that] --> X[report the knockout]
+```
+
+<details><summary><b>Advanced detail:</b> the power byte lies about eleven moves,
+and they are exactly the ones you must not pick</summary>
+
+Ranking by the move table's power byte to find something gentle has a trap in
+it. Gen 2 stores the fixed-damage and one-hit-KO effects with a power of 0 or 1,
+because their damage is computed rather than scaled — so sorting ascending puts
+every one of them *ahead* of TACKLE. Asked for the weakest damaging move, the
+obvious implementation returns GUILLOTINE:
+
+| move | power | what it actually does |
+| --- | --- | --- |
+| GUILLOTINE | 0 | the whole bar |
+| HORN&nbsp;DRILL, FISSURE | 1 | the whole bar |
+| SUPER&nbsp;FANG | 1 | half of current HP |
+| SEISMIC&nbsp;TOSS, NIGHT&nbsp;SHADE | 1 | your level, in HP |
+| PSYWAVE | 1 | up to 1.5× your level |
+| COUNTER, MIRROR&nbsp;COAT | 1 | twice what you just took |
+| TACKLE | 35 | 35 power, scaled normally |
+
+`UNGENTLE_EFFECTS` excludes them by effect rather than trying to rank them,
+because there is no gentle version of a one-hit KO. The learned-damage guard
+cannot substitute for this: it learns from the swing it just took, so a first
+swing of GUILLOTINE teaches it the maximum and costs the target to do it.
+
+Status moves are excluded too, by the `power > 0` test, for the opposite reason
+— ranked by power they are the gentlest thing available and they weaken nothing,
+so weakening would spend every turn until `MAX_CHIPS` achieving exactly nothing.
+
+</details>
+
 <details>
 <summary><b>Advanced detail:</b> the weakest move, and the pump</summary>
 
-**`--weaken-to F` deliberately picks the weakest damaging move available**,
-because the usual way to lose a catch is to knock it out. `_chip` sorts usable
-moves by power and filters to damaging ones; with none it says so rather than
-flailing.
+**`--weaken-to F` picks the gentlest move available**, because the usual way to
+lose a catch is to knock it out. `_chip` filters to moves that take HP off
+without deciding the battle by themselves and takes the lowest-powered of those;
+with none it returns `nomove` and the caller throws anyway, because a worse
+throw still beats no throw. It reports what happened rather than pass/fail —
+`ok | fainted | ended | nomove | stuck` — since a knockout is a measurement the
+guard wants and "nothing to swing with" is not a failure at all.
+
+**A knockout ends the battle, so `_chip` reports it as `ended`** rather than as
+a zero it could read — the enemy struct is cleared before anyone gets the
+chance. The caller tells a knockout from a defeat by asking whether *our* lead
+is still standing, which the party still answers after the battle is over.
+Getting this wrong is not loud: a live hunt reported twelve encounters, zero
+balls thrown and seven Pokémon "got away", when it had in fact killed all seven
+— and the guard learned nothing from any of them, so it did it again every time.
 
 **`_watch_throw` delegates to the battle engine's pump rather than tapping A
 blindly.** A stray A while the battle menu is up selects FIGHT, which leaves the

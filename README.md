@@ -200,10 +200,16 @@ an empty bag; `heal` declines mid-battle and treats an already-healthy party as
 done rather than as an error. `battle` defaults to playing the battle out rather
 than fleeing — pass `--flee-below F` for the escaping policy.
 
-`capture` does **not** weaken by default, unlike `catch`. Nothing tracks how
-hard your Pokémon hits, so against a much weaker target the gentlest move is
-still lethal — a Lv15 Quilava with `--weaken-to 0.4` knocks out a Lv2 route
-Pokémon rather than catching it. Use it when the levels are close.
+`capture` does **not** weaken by default, unlike `catch`. Weakening is guarded:
+the pilot remembers the biggest hit one swing has landed and refuses to swing at
+anything with no more HP than that, because a fainted Pokémon cannot be caught
+by any ball. Two things follow from where that memory lives.
+
+A `catch` hunt keeps one memory across every encounter on the route, so it gets
+safer as it goes — the first target may be lost, and paying that once protects
+every target after it. `capture` acts on one battle and starts cold, so its
+first swing is the one thing the guard cannot cover; that is why it does not
+weaken unless you ask. With a strong lead against a weak target, throw first.
 
 ### Battle every trainer on a route
 
