@@ -11,6 +11,7 @@ game did not commit.
 """
 from __future__ import annotations
 
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -31,6 +32,10 @@ class BackupSet:
         if self.state:
             bits.append(f"state={self.state.name}")
         return " ".join(bits)
+
+
+# What `take` names its files: the stamp from _stamp(), then a label.
+STAMPED = re.compile(r"^\d{8}-\d{6}-")
 
 
 class BackupManager:
@@ -75,10 +80,15 @@ class BackupManager:
         Sets are pruned whole, so a surviving .state always has its .sav beside
         it -- which is what a restore needs to be exact rather than approximate.
         """
-        stamps = sorted({p.stem for p in self.dir.glob("*.state")}
-                        | {p.stem for p in self.dir.glob("*.sav")},
-                        reverse=True)
-        for stem in stamps[self.keep:]:
+        stems = {p.stem for p in self.dir.glob("*.state")} \
+            | {p.stem for p in self.dir.glob("*.sav")}
+        # Only files this class named. The backup directory is not private --
+        # `hunt --keep-battle` parks a `found-<SPECIES>.state` here on purpose,
+        # for `play` and `resume` to pick the battle up from -- and sweeping
+        # someone else's file away because it has no .sav beside it would
+        # delete a deliberate hand-off, not tidy up a half-written backup.
+        mine = sorted((s for s in stems if STAMPED.match(s)), reverse=True)
+        for stem in mine[self.keep:]:
             for suffix in (".sav", ".state"):
                 (self.dir / f"{stem}{suffix}").unlink(missing_ok=True)
 

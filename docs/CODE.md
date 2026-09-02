@@ -768,7 +768,7 @@ now.
 
 ## 9. Recording, checkpoints and backups
 
-<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 159c7a5cc3aa -->
+<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ a034328634bd -->
 
 Three different things, easily confused.
 
@@ -810,6 +810,17 @@ independently by mtime deleted the `.sav` half of recent sets while keeping
 because the surviving `.state` makes the restore look available while the bytes
 it would have used are gone.
 
+**Pruning only touches files `take` named.** The backup directory is shared, not
+private: `hunt --keep-battle` parks a `found-<SPECIES>.state` there so `play` or
+`resume` can pick the battle up. It has no `.sav` by design, which makes it look
+exactly like the half-written set that prune-by-set exists to clear away — so
+the sweep is restricted to names matching the `YYYYmmdd-HHMMSS-` stamp.
+
+**The tests back up to a temp directory, never the real one.** Every task takes
+a backup on entry and prunes to the newest few dozen, so a suite run used to add
+a dozen sets to a real player's backups and delete a dozen others. Found by
+restoring a save from a backup that a later test run had pruned away.
+
 Taking only one of them leaves a real hole, which is why `backup.py` takes both
 before any task.
 
@@ -819,7 +830,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/selfcheck.py @ 9bb3e76c960e -->
+<!-- covers: run-tests tests/harness.py tests/selfcheck.py @ ca6f86f812fc -->
 
 ```bash
 ./run-tests                      # everything

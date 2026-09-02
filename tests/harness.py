@@ -147,10 +147,18 @@ class Ctx(Check):
             )
 
     def pilot(self, fixture: str | None = None, timeout: float = 300.0):
-        """A Pilot, optionally restored to a fixture's exact machine state."""
+        """A Pilot, optionally restored to a fixture's exact machine state.
+
+        Backups go to a temp directory, never the real one beside the ROM.
+        Tasks take a backup on entry and prune to the newest few dozen, so a
+        test run used to churn through a real player's saves: a full suite added
+        a dozen sets and deleted a dozen others. Found the hard way, having
+        restored a save from a backup that a later test run then pruned.
+        """
         self.require_rom()
         from pilot.pilot import Pilot
         p = Pilot(rom=self.rom, source=self.source, window="null", speed=0,
+                  backup_dir=self.scratch("backups"),
                   timeout_seconds=timeout, log=lambda *a, **k: None)
         self._open.append(p)
         if fixture:
@@ -158,6 +166,13 @@ class Ctx(Check):
             p.collision._calibrated = False
             p.calibrate()
         return p
+
+    def scratch(self, tag: str = "case"):
+        """A temp directory that goes away when the test finishes."""
+        import tempfile
+        d = Path(tempfile.mkdtemp(prefix=f"crystal-pilot-{tag}-"))
+        self._tmpdirs.append(d)
+        return d
 
     def rom_copy(self, tag: str = "case"):
         """A private ROM+sym copy in a temp dir, so save tests never touch the

@@ -104,3 +104,49 @@ def _(t):
     # the restore looks available, and the bytes it would have used are gone.
     t.eq(kept_savs, kept_states, "every surviving .state still has its .sav")
     t.eq(kept_states, sorted(stems)[-3:], "and they are the newest three")
+
+
+@test("pruning leaves alone files it did not write")
+def _(t):
+    """The backup directory is shared, not private.
+
+    `hunt --keep-battle` parks a `found-<SPECIES>.state` here so the battle can
+    be picked up later in `play` or `resume`. It has no `.sav` by design, which
+    made it look exactly like the half-written backup that prune-by-set exists
+    to clear away. Sweeping it up would delete a deliberate hand-off.
+    """
+    d = Path(t.rom_copy("backup-foreign")).parent / "backups"
+    sav = d.parent / "fake.sav"
+    sav.parent.mkdir(parents=True, exist_ok=True)
+    sav.write_bytes(b"\x01" * 64)
+
+    class _FakeSession:
+        def save_state_to(self, path):
+            Path(path).write_bytes(b"\x02" * 64)
+
+    m = BackupManager(d, sav_path=sav, log=lambda *a, **k: None, keep=2)
+    d.mkdir(parents=True, exist_ok=True)
+    # A hunt's hand-off, and something a person might drop in here.
+    foreign = d / "found-RATTATA.state"
+    foreign.write_bytes(b"\x03" * 64)
+    notes = d / "notes.txt"
+    notes.write_bytes(b"keep me")
+    # `found-...` starts with a letter, so a name-ordered sweep happens to keep
+    # it whatever the bug does -- which would make the check above pass for the
+    # wrong reason. This one sorts below every real stamp, so only a prune that
+    # actually restricts itself to its own files will spare it.
+    low = d / "0000-hand-saved.state"
+    low.write_bytes(b"\x04" * 64)
+
+    # Enough backups to force several prunes.
+    for i in range(5):
+        stamp = f"2026010{i}-000000"
+        m._stamp = lambda s=stamp: s
+        m.take(_FakeSession(), "case")
+
+    t.true(foreign.exists(),
+           "hunt's found-*.state must survive an unrelated task's pruning")
+    t.true(low.exists(),
+           "and so must a foreign file that sorts below every backup stamp")
+    t.true(notes.exists(), "and so must anything else in the directory")
+    t.eq(len(list(d.glob("*-case.state"))), 2, "its own sets still prune to keep")
