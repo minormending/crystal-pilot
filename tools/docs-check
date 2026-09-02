@@ -116,6 +116,7 @@ def main(argv):
         print("docs-check: no 'covers:' markers found — nothing is tracked yet.")
         return 0
 
+    total = len(records)
     if only:
         wanted = {pathlib.Path(o).as_posix() for o in only}
         records = [r for r in records if wanted & set(r["files"])]
@@ -149,7 +150,12 @@ def main(argv):
         return 1 if broken else 0
 
     if not stale and not broken:
-        print(f"docs-check: {len(records)} section(s) tracked, all current.")
+        # Say which count this is. Reporting the filtered number as though it
+        # were the total read as "only one section is tracked", which is exactly
+        # the kind of confusing output that gets a checker ignored.
+        scope = (f"{len(records)} of {total} section(s) cover these files"
+                 if only else f"{total} section(s) tracked")
+        print(f"docs-check: {scope}, all current.")
         return 0
 
     if stale:
