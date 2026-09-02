@@ -61,19 +61,53 @@ class BackupManager:
         return bs
 
     def _prune(self) -> None:
-        for suffix in (".sav", ".state"):
-            files = sorted(self.dir.glob(f"*{suffix}"),
-                           key=lambda p: p.stat().st_mtime, reverse=True)
-            for old in files[self.keep:]:
-                old.unlink(missing_ok=True)
+        """Drop the oldest backup *sets*, keeping the newest `keep`.
 
-    def restore(self, session, backup: BackupSet) -> None:
+        Ordered by the timestamp in the name, not by mtime. `take` copies the
+        .sav with copy2, which preserves the *source* save's modification time
+        -- so a .sav backup taken today can carry an mtime from last week, and
+        mtime order has nothing to do with when the backup was made. Pruning the
+        two suffixes independently by mtime therefore deleted the .sav half of
+        the newest set while keeping .savs from much older ones. Measured: a
+        restore then silently fell back to the .state, because the .sav it named
+        had been pruned minutes after being written.
+
+        Sets are pruned whole, so a surviving .state always has its .sav beside
+        it -- which is what a restore needs to be exact rather than approximate.
+        """
+        stamps = sorted({p.stem for p in self.dir.glob("*.state")}
+                        | {p.stem for p in self.dir.glob("*.sav")},
+                        reverse=True)
+        for stem in stamps[self.keep:]:
+            for suffix in (".sav", ".state"):
+                (self.dir / f"{stem}{suffix}").unlink(missing_ok=True)
+
+    def restore(self, session, backup: BackupSet) -> bool:
+        """Put the machine state and the .sav back. Returns whether the .sav was.
+
+        Order matters, and it is the opposite of the obvious one. Loading the
+        machine state brings that moment's SRAM with it, so anything that
+        flushes SRAM afterwards writes *the state's* bytes over the .sav that
+        was just copied in. The caller does flush, to keep the two consistent --
+        so the .sav copy goes last, and the flush is asked for before it.
+
+        Without this the .sav half was never restored at all: the file ended up
+        holding the state's SRAM while the log claimed it came from the backup's
+        .sav. Close enough to look right -- the same party, the same map -- and
+        not the same bytes.
+        """
         if backup.state and backup.state.exists():
             session.load_state_from(backup.state)
             self.log(f"restored machine state from {backup.state.name}")
+            session.flush_sram()
         if backup.sav and self.sav_path and backup.sav.exists():
             shutil.copy2(backup.sav, self.sav_path)
             self.log(f"restored SRAM from {backup.sav.name}")
+            return True
+        if backup.state and backup.state.exists():
+            self.log("no .sav in that backup set; the save now holds the "
+                     "machine state's SRAM, which may differ byte for byte")
+        return False
 
     def list(self) -> list[Path]:
         return sorted(self.dir.glob("*.state"), key=lambda p: p.stat().st_mtime)

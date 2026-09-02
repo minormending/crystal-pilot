@@ -384,11 +384,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"no such backup: {state}", file=sys.stderr)
                 return 2
             sav = state.with_suffix(".sav")
-            pilot.backups.restore(pilot.session, BackupSet(
+            # restore() flushes SRAM itself, before it copies the .sav in --
+            # flushing afterwards is what used to overwrite the restored bytes.
+            exact = pilot.backups.restore(pilot.session, BackupSet(
                 label=args.name, state=state,
                 sav=sav if sav.exists() else None, when="restore"))
-            pilot.session.flush_sram()
-            print(f"restored {args.name}")
+            print(f"restored {args.name}"
+                  f"{'' if exact else ' (machine state only -- no .sav in the set)'}")
             return 0
         finally:
             pilot.stop(save_sram=False)

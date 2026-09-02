@@ -725,7 +725,7 @@ Master Ball is never thrown unless you name it.
 
 ## 8. Three ways to drive it
 
-<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ a37bf444efca -->
+<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 525a08268e4d -->
 
 The same tasks, three front ends, one `TaskResult` shape between them.
 
@@ -768,7 +768,7 @@ now.
 
 ## 9. Recording, checkpoints and backups
 
-<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 67715d7fdcd0 -->
+<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 159c7a5cc3aa -->
 
 Three different things, easily confused.
 
@@ -790,6 +790,25 @@ They protect against different failures. The `.sav` is the battery save — what
 the game itself wrote, and what you would lose to a bad in-game save. A save
 state is the whole machine, including things the `.sav` does not carry, and it
 is what you want if a task leaves the game somewhere strange.
+
+**Restoring copies the `.sav` last, after flushing SRAM.** This ordering is not
+cosmetic. Loading the save state brings that moment's SRAM with it, so anything
+that flushes SRAM *after* the `.sav` has been copied writes the state's bytes
+over the ones just restored. The `.sav` on disk and the running machine are
+routinely out of step — SRAM only changes when the game commits a save — so the
+two are genuinely different bytes. Before this was fixed, a restore reported
+success, logged the `.sav` it had used, and left a file that had never existed
+in that backup: same party, same map, different bytes. Found by restoring a real
+save and comparing hashes, which is the only way it shows.
+
+**Pruning drops whole sets, ordered by the timestamp in the name.** Not by
+mtime: `take` copies the `.sav` with `copy2`, which preserves the *source*
+save's modification time, so every `.sav` backup inherits whenever the live save
+was last written rather than when the backup was made. Pruning the two suffixes
+independently by mtime deleted the `.sav` half of recent sets while keeping
+`.sav`s from much older ones — and a half-pruned set is worse than no backup,
+because the surviving `.state` makes the restore look available while the bytes
+it would have used are gone.
 
 Taking only one of them leaves a real hole, which is why `backup.py` takes both
 before any task.
