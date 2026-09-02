@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""Report documentation sections whose covered source files have changed.
+
+The guarantee is deliberately modest: this checks that prose was *looked at*
+since the code moved, not that the prose is right. Nothing short of a human
+reading both can do the second, and the failure mode worth catching is not
+"someone wrote something wrong" -- it is "someone changed the code and nobody
+remembered this file existed".
+
+A section opts in with a marker naming the files it covers and the hash those
+files had when the prose was last checked:
+
+    <!-- covers: app/nav.js app/collision.js @ a1b2c3d4e5f6 -->
+
+Usage:
+    tools/docs-check            report drift, exit 1 if any
+    tools/docs-check --update   record current hashes
+    tools/docs-check --only a.js b.js
+                                report only sections covering these files
+"""
+import hashlib
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+DOCS = sorted(ROOT.glob("docs/*.md"))
+MARKER = re.compile(
+    r"<!--\s*covers(?P<kind>|-api):\s*(?P<files>[^@]+?)"
+    r"\s*@\s*(?P<hash>[0-9a-f]{12}|NEW)\s*-->"
+)
+# Lines that make up a module's surface, for `covers-api`. Python rather than
+# JavaScript: imports plus top-level and method definitions.
+SURFACE = re.compile(r"^\s*(import|from|def|async def|class)\b")
+HEADING = re.compile(r"^(#{2,4})\s+(.*)$")
+WIDTH = 12
+
+
+def digest(paths, kind=""):
+    """One hash over several files, order-independent and path-qualified.
+
+    `covers-api` hashes only the imports and definitions. A section describing
+    how the modules fit together goes stale when the module surface changes, not
+    when a comment inside one of them is reworded -- and hashing whole contents
+    across ten files meant that section flapped on nearly every commit, which is
+    how a tool like this gets switched off.
+    """
+    h = hashlib.sha256()
+    for name in sorted(paths):
+        target = ROOT / name
+        h.update(name.encode())
+        h.update(b"\0")
+        if not target.exists():
+            body = b"<missing>"
+        elif kind == "-api":
+            lines = target.read_text().splitlines()
+            body = "\n".join(l.strip() for l in lines if SURFACE.match(l)).encode()
+        else:
+            body = target.read_bytes()
+        h.update(body)
+        h.update(b"\0")
+    return h.hexdigest()[:WIDTH]
+
+
+def heading_before(lines, index):
+    for line in reversed(lines[:index]):
+        m = HEADING.match(line)
+        if m:
+            return m.group(2).strip()
+    return "(top of file)"
+
+
+def scan():
+    """Yield one record per marker found across every doc.
+
+    Fenced code blocks are skipped. A document that explains this marker format
+    contains an example of it, and without this the tool rewrote its own
+    documentation -- caught immediately, because it recorded fifteen sections
+    when fourteen had been marked.
+    """
+    for doc in DOCS:
+        lines = doc.read_text().splitlines()
+        fenced = False
+        for n, line in enumerate(lines):
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced:
+                continue
+            m = MARKER.search(line)
+            if not m:
+                continue
+            files = m.group("files").split()
+            missing = [f for f in files if not (ROOT / f).exists()]
+            yield {
+                "doc": doc,
+                "line": n,
+                "raw": line,
+                "files": files,
+                "missing": missing,
+                "recorded": m.group("hash"),
+                "actual": digest(files, m.group("kind")),
+                "kind": m.group("kind"),
+                "section": heading_before(lines, n),
+            }
+
+
+def main(argv):
+    update = "--update" in argv
+    only = []
+    if "--only" in argv:
+        only = [a for a in argv[argv.index("--only") + 1:] if not a.startswith("-")]
+
+    records = list(scan())
+    if not records:
+        print("docs-check: no 'covers:' markers found — nothing is tracked yet.")
+        return 0
+
+    if only:
+        wanted = {pathlib.Path(o).as_posix() for o in only}
+        records = [r for r in records if wanted & set(r["files"])]
+        if not records:
+            return 0
+
+    stale = [r for r in records if r["recorded"] != r["actual"]]
+    broken = [r for r in records if r["missing"]]
+
+    for r in broken:
+        print(f"  {r['doc'].name}:{r['line'] + 1}  covers files that do not exist: "
+              f"{' '.join(r['missing'])}")
+
+    if update:
+        for doc in {r["doc"] for r in stale}:
+            text = doc.read_text()
+            for r in (x for x in stale if x["doc"] is doc):
+                text = text.replace(
+                    r["raw"],
+                    MARKER.sub(
+                        lambda m, h=r["actual"]:
+                        m.group(0).replace(m.group("hash"), h),
+                        r["raw"],
+                    ),
+                )
+            doc.write_text(text)
+        if stale:
+            print(f"docs-check: recorded {len(stale)} section(s) as reviewed.")
+        else:
+            print("docs-check: nothing to update.")
+        return 1 if broken else 0
+
+    if not stale and not broken:
+        print(f"docs-check: {len(records)} section(s) tracked, all current.")
+        return 0
+
+    if stale:
+        print("docs-check: these sections cover code that has changed since they "
+              "were last checked.\n")
+        for r in stale:
+            print(f"  {r['doc'].name}  →  {r['section']}")
+            print(f"      covers: {' '.join(r['files'])}")
+        print("\nRe-read those sections against the code. When they are right again:")
+        print("    tools/docs-check --update")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

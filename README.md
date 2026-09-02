@@ -48,6 +48,23 @@ state, so a three-hour grind is a minute you can actually watch:
 
 <img src="docs/screenshots/recording.png" alt="A frame from a recorded run" width="330">
 
+## The code
+
+**[docs/CODE.md](docs/CODE.md)** explains the code and the reasoning inside it,
+with mermaid diagrams for the decision trees — the battle pump and what each
+hook is for, fight/flee/switch, the four layers of movement, catching, and how
+the three front ends share one result shape.
+
+It is written for someone who has not seen the codebase before, with the harder
+material — which ROM routine to hook and why, and the failures that motivated
+each design — folded into collapsible *Senior detail* sections so the main
+thread stays readable.
+
+Sections that describe code carry a hash of the files they cover, so
+`tools/docs-check` can name the ones that need re-reading after a change. A
+pre-commit hook runs it; enable it once per clone with
+`git config core.hooksPath .githooks`.
+
 ## Requirements
 
 - A **pokecrystal** disassembly checkout, built (`make`), giving you

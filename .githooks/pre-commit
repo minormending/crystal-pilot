@@ -1,0 +1,31 @@
+#!/bin/sh
+# Flag documentation sections whose code has changed in this commit.
+#
+# Blocks rather than warns, because a warning in a pre-commit hook is a warning
+# nobody reads. The escape is printed below, and --no-verify always works.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$|^run-tests$')
+[ -z "$staged" ] && exit 0
+
+# Check the staged content, not the working tree: those can differ, and the
+# commit is what will be recorded.
+tmp=$(mktemp -d) || exit 0
+trap 'rm -rf "$tmp"' EXIT
+git checkout-index -a -f --prefix="$tmp/" 2>/dev/null || { exit 0; }
+cp -R docs tools "$tmp/" 2>/dev/null
+
+if ! (cd "$tmp" && python3 tools/docs-check --only $staged); then
+  cat <<'MSG'
+
+  ---
+  The code above is described in docs/CODE.md. Re-read those sections, then:
+
+      tools/docs-check --update && git add docs/
+
+  To commit without doing that:  git commit --no-verify
+MSG
+  exit 1
+fi
+exit 0
