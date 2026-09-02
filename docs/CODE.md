@@ -100,7 +100,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 0205db017b6d -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 1e81c98f9f78 -->
 
 Roughly 7,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -535,6 +535,67 @@ their own.
 | `trainers` | sweeps every trainer on a route |
 | `search` | the wild-encounter loop `hunt` and `catch` share |
 
+### Three that act on where you already are
+
+<!-- covers: pilot/tasks/moment.py @ d76ca89aa3cf -->
+
+Every task above goes *looking* for something. These do the obvious thing with
+the situation in front of you and take no target:
+
+| Command | Does | Refuses when |
+| --- | --- | --- |
+| `battle` | plays out the battle you are in, wild or trainer | you are not in one |
+| `capture` | weakens and throws at the wild Pokémon you are facing | not in a battle · it is a trainer's · party full · no balls |
+| `heal` | walks to the nearest heal place and comes back | you are in a battle · no party |
+
+```mermaid
+flowchart TD
+    A["what is happening?"] --> B{"in a battle?"}
+    B -- no --> HEAL["heal is the one that applies"]
+    B -- yes --> T{"a trainer?"}
+    T -- yes --> ONLYB["battle only — a trainer's<br/>Pokémon cannot be caught"]
+    T -- no --> BOTH["battle, or capture"]
+```
+
+None of them contain new game logic: the battle engine, the capture loop and the
+Pokémon Center round trip already existed and are used exactly as the searching
+tasks use them.
+
+<details>
+<summary><b>Advanced detail:</b> the one thing that had to be detected, not assumed</summary>
+
+**`capture` subclasses `CatchTask`** rather than copying it. `_try_capture`,
+`_pick_ball`, `_chip` and `_watch_throw` are the parts that matter and they are
+identical; the only difference is that nothing is searched for first.
+
+**`battle` has to work out whether the menu is already up.** `BattleEngine.run`
+takes `menu_open`, and getting it wrong is quiet rather than loud. Invoked by
+hand you are usually sitting at the battle menu, so its hook has *already*
+fired — telling the engine to wait for one means waiting for an event that will
+not come again. Measured on the same fixture:
+
+| `menu_open` | reported |
+| --- | --- |
+| `False` | won in **0 turns** — resolved by the engine's quiet nudge, not by play |
+| `True` | won in **1 turn** — the turn it actually took |
+
+But it is not always up: run this while *"Wild HOPPIP appeared!"* is still on
+screen and there is no menu yet. So the task calls the same cursor check the
+engine uses internally and passes the answer, which is right in both cases.
+
+**`flee_below` defaults to 0 here**, not the engine's 0.35. You asked for this
+battle to be played out; bailing on low HP would be answering a different
+question. Pass `--flee-below` to get the escaping policy.
+
+**`heal` reports an already-healthy party as completed**, not as an error —
+nothing needed doing, which is the outcome the caller wanted. `--force` goes
+anyway, which is also how the round trip gets exercised: verified travelling
+`ROUTE_29 → CHERRYGROVE_POKECENTER_1F (2 hops)` and back. That took 0.1s of wall
+time, which looks impossible until you remember this runs at roughly 28,000 fps
+headless — about 47 seconds of game time.
+
+</details>
+
 ### Catching
 
 ```mermaid
@@ -581,7 +642,7 @@ Master Ball is never thrown unless you name it.
 
 ## 8. Three ways to drive it
 
-<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ e6b6a44f7133 -->
+<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ a37bf444efca -->
 
 The same tasks, three front ends, one `TaskResult` shape between them.
 

@@ -176,6 +176,30 @@ picks the weakest move available, because the usual way to lose a catch is to
 knock it out. With no balls in the bag it refuses up front rather than hunting
 first and failing at the throw.
 
+### Act on the battle you are already in
+
+```bash
+crystal-pilot battle
+crystal-pilot capture --weaken-to 0.4
+crystal-pilot heal
+```
+
+```
+done: won the wild battle
+  kind=wild  result=won  turns=1  seconds=0.4
+```
+
+Three commands that take no target: each reads the situation and either does the
+obvious thing or says why it cannot. `battle` plays out the battle you are in,
+wild or trainer. `capture` throws at the wild Pokémon in front of you — use
+`catch` to go and *find* one. `heal` walks to the nearest heal place and comes
+back.
+
+Each refuses precisely: `capture` declines a trainer's Pokémon, a full party and
+an empty bag; `heal` declines mid-battle and treats an already-healthy party as
+done rather than as an error. `battle` defaults to playing the battle out rather
+than fleeing — pass `--flee-below F` for the escaping policy.
+
 ### Battle every trainer on a route
 
 ```bash

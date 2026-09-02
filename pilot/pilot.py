@@ -16,6 +16,7 @@ from .state import GameStateReader
 from .tasks.bootstrap import Bootstrap
 from .tasks.grind import GrindTask
 from .tasks.catch import CatchTask
+from .tasks.moment import CaptureTask, FightTask, HealTask
 from .tasks.hunt import HuntTask
 from .tasks.trainers import TrainerSweepTask
 from .travel import Traveler
@@ -231,6 +232,33 @@ class Pilot:
         if result.saved:
             self.session.flush_sram()
         return result
+
+    # --- acting on the situation you are already in -------------------------
+    # Deliberately no calibrate() on the two battle ones: they never walk, so a
+    # collision decode is not needed and asking for one inside a battle would
+    # be sampling a map that is not on screen.
+    def battle(self, **kwargs):
+        task = FightTask(self.session, self.reader, self.control, self.nav,
+                         self.world, self.gamedata, self.traveler, self.saver,
+                         self.backups, log=self.log)
+        return task.run(**kwargs)
+
+    def capture(self, **kwargs):
+        task = CaptureTask(self.session, self.reader, self.control, self.nav,
+                           self.world, self.gamedata, self.traveler, self.saver,
+                           self.backups, log=self.log)
+        result = task.run(**kwargs)
+        if result.saved:
+            self.session.flush_sram()
+        return result
+
+    def heal(self, **kwargs):
+        if not self.collision.calibrated:
+            self.calibrate()
+        task = HealTask(self.session, self.reader, self.control, self.nav,
+                        self.world, self.gamedata, self.traveler, self.saver,
+                        self.backups, log=self.log)
+        return task.run(**kwargs)
 
     def trainers(self, **kwargs):
         if not self.collision.calibrated:

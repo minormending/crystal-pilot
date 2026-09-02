@@ -95,6 +95,37 @@ def build_parser() -> argparse.ArgumentParser:
                    help="run from the battle once found, instead of leaving it "
                         "on screen to pick up")
 
+    # The three that act on the situation you are already in. No target: each
+    # reads the game and either does the obvious thing or says why it cannot.
+    bt = sub.add_parser("battle",
+                        help="play out the battle you are already in "
+                             "(wild or trainer)")
+    bt.add_argument("--slot", type=int, default=None, metavar="N",
+                    help="send this party slot out first, 1-based")
+    bt.add_argument("--flee-below", type=float, default=0.0, metavar="F",
+                    help="try to run if HP drops under this fraction "
+                         "(default 0: play it out)")
+    bt.add_argument("--max-turns", type=int, default=60,
+                    help="give up after this many turns (default 60)")
+
+    cp = sub.add_parser("capture",
+                        help="catch the wild Pokemon in front of you right now "
+                             "(use `catch` to go and find one)")
+    cp.add_argument("--ball", default=None,
+                    help="which ball to throw (default: the cheapest ordinary "
+                         "ball you have)")
+    cp.add_argument("--weaken-to", type=float, default=None, metavar="F",
+                    help="chip it down to this HP fraction first, using the "
+                         "weakest damaging move (default: do not attack)")
+    cp.add_argument("--max-balls", type=int, default=40,
+                    help="give up after throwing this many balls (default 40)")
+
+    hl = sub.add_parser("heal",
+                        help="walk to the nearest heal place, heal, and come "
+                             "back")
+    hl.add_argument("--force", action="store_true",
+                    help="go even if nothing is hurt")
+
     ct = sub.add_parser("catch",
                         help="find and catch a wild Pokemon on the current route")
     ct.add_argument("--species", default=None, help="what to catch, by name")
@@ -412,6 +443,35 @@ def main(argv: list[str] | None = None) -> int:
                 for r in (rec, cps):
                     if r:
                         print(r.describe())
+            return 0 if result.ok else 1
+
+        if args.cmd == "battle":
+            # A battle is minutes at most, so a much smaller budget than the
+            # searching tasks get.
+            pilot.session.set_budget(Budget(max_frames=60 * 60 * 20,
+                                            max_wall_seconds=args.timeout))
+            result = pilot.battle(
+                target_slot=None if args.slot is None else args.slot - 1,
+                flee_below=args.flee_below, max_turns=args.max_turns,
+            )
+            print(result.render())
+            return 0 if result.ok else 1
+
+        if args.cmd == "capture":
+            pilot.session.set_budget(Budget(max_frames=60 * 60 * 20,
+                                            max_wall_seconds=args.timeout))
+            result = pilot.capture(
+                ball=args.ball, weaken_to=args.weaken_to,
+                max_balls=args.max_balls, save_when_done=not args.no_save,
+            )
+            print(result.render())
+            return 0 if result.ok else 1
+
+        if args.cmd == "heal":
+            pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 4,
+                                            max_wall_seconds=args.timeout))
+            result = pilot.heal(force=args.force)
+            print(result.render())
             return 0 if result.ok else 1
 
         if args.cmd == "catch":
