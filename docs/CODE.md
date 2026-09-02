@@ -12,7 +12,7 @@ Wherever there is more to the story — a measurement, a trap, an address, a
 reason the obvious approach does not work — it is folded away like this:
 
 <details>
-<summary><b>Senior detail:</b> what goes in these</summary>
+<summary><b>Advanced detail:</b> what goes in these</summary>
 
 The expansions hold the things that cost time to find out: which ROM routine to
 hook and why, the failure that motivated a design, and the cases where the
@@ -77,7 +77,7 @@ flowchart LR
 ```
 
 <details>
-<summary><b>Senior detail:</b> what hooks buy, precisely</summary>
+<summary><b>Advanced detail:</b> what hooks buy, precisely</summary>
 
 Polling asks "is the menu up?" over and over and has to infer the answer from
 memory that was not designed to answer it. The mobile port has to do exactly
@@ -158,7 +158,7 @@ flowchart TD
 | `pilot.py` | assembles all of it and exposes the tasks |
 
 <details>
-<summary><b>Senior detail:</b> two boundaries that carry their weight</summary>
+<summary><b>Advanced detail:</b> two boundaries that carry their weight</summary>
 
 **`battle.py` takes a policy, not a decision.** `BattlePolicy` is a dataclass —
 `flee_below`, `always_flee`, `allow_evolution`, `learn_new_moves`,
@@ -191,7 +191,7 @@ Owns the emulator. Runs frames, reads memory, registers the hooks, and holds the
 queue of events they produce.
 
 <details>
-<summary><b>Senior detail:</b> WRAM banking, and rendering</summary>
+<summary><b>Advanced detail:</b> WRAM banking, and rendering</summary>
 
 **`0xD000–0xDFFF` is bank-switched on CGB and Crystal really does switch it** —
 banks 1, 5 and 6 all occur in normal play. Unbanked reads of that window return
@@ -224,7 +224,7 @@ Typed reads: location, party, the battle, the bag. Every read goes through a
 symbol, so nothing here contains a bare address.
 
 <details>
-<summary><b>Senior detail:</b> the signal that is not what it looks like</summary>
+<summary><b>Advanced detail:</b> the signal that is not what it looks like</summary>
 
 **"World loaded" is not "party loaded".** The CONTINUE screen restores the party
 and coordinates *before* the map exists, so waiting on party data starts pressing
@@ -248,7 +248,7 @@ wild Pokémon appear where — all parsed out of the **pokecrystal source tree**
 so they cannot drift from the ROM being driven.
 
 <details>
-<summary><b>Senior detail:</b> time of day is part of the answer</summary>
+<summary><b>Advanced detail:</b> time of day is part of the answer</summary>
 
 `species_on(source, map, time_of_day, kinds)` takes the time because the tables
 do. Route 29 trades Pidgey and Sentret for Hoothoot after dark, and a pilot
@@ -268,7 +268,7 @@ pathfinding over it — so movement is planned rather than discovered by bumping
 into things.
 
 <details>
-<summary><b>Senior detail:</b> the decode, and the check that is not enough</summary>
+<summary><b>Advanced detail:</b> the decode, and the check that is not enough</summary>
 
 The loaded map's blocks live in `wOverworldMapBlocks`; each tileset's
 per-quadrant collision values sit in ROM at `wTilesetCollisionAddress`. Reading
@@ -328,7 +328,7 @@ Grouped by what they are for:
 | A sign that something went wrong | `NamingScreen` |
 
 <details>
-<summary><b>Senior detail:</b> the naming group, and the bank limit</summary>
+<summary><b>Advanced detail:</b> the naming group, and the bank limit</summary>
 
 **The naming hooks exist because every one of those prompts is A-confirmable,
 and that is precisely the problem.** Mashing A through the intro names the
@@ -403,7 +403,7 @@ flowchart TD
 Two of those branches are the interesting ones.
 
 <details>
-<summary><b>Senior detail:</b> order matters, twice</summary>
+<summary><b>Advanced detail:</b> order matters, twice</summary>
 
 **The nickname check comes first, before `in_battle`.** A capture *ends the
 battle with the nickname box still on screen*. Check `in_battle` before the
@@ -448,7 +448,7 @@ flowchart TD
 ```
 
 <details>
-<summary><b>Senior detail:</b> why `fight_if_cornered` exists</summary>
+<summary><b>Advanced detail:</b> why `fight_if_cornered` exists</summary>
 
 **Trainer battles cannot be fled.** A policy that only knows how to run will
 stand in one losing HP until something faints, so `fight_if_cornered` turns "I
@@ -488,7 +488,7 @@ both directions: too short and the press is spent turning, too long and you take
 a second step into grass you did not plan for.
 
 <details>
-<summary><b>Senior detail:</b> edge tiles, and the exploratory fallback</summary>
+<summary><b>Advanced detail:</b> edge tiles, and the exploratory fallback</summary>
 
 **A connection spans only part of a shared edge**, so `cross_edge` walks to
 walkable edge tiles **centre-out** and tries to step off each one. With a
@@ -556,7 +556,7 @@ flowchart TD
 ```
 
 <details>
-<summary><b>Senior detail:</b> the weakest move, and the pump</summary>
+<summary><b>Advanced detail:</b> the weakest move, and the pump</summary>
 
 **`--weaken-to F` deliberately picks the weakest damaging move available**,
 because the usual way to lose a catch is to knock it out. `_chip` sorts usable
@@ -602,7 +602,7 @@ flowchart LR
 ```
 
 <details>
-<summary><b>Senior detail:</b> the web UI's two rules</summary>
+<summary><b>Advanced detail:</b> the web UI's two rules</summary>
 
 **It binds to the LAN behind a per-run token, and must not be port-forwarded.**
 It drives an emulator on your machine; there is no authentication model beyond
@@ -640,7 +640,7 @@ emulated frames, so frames are sampled. The checkpoints are the frame-exact part
 `timeline`/`resume` tie the two together.
 
 <details>
-<summary><b>Senior detail:</b> why two kinds of backup</summary>
+<summary><b>Advanced detail:</b> why two kinds of backup</summary>
 
 They protect against different failures. The `.sav` is the battery save — what
 the game itself wrote, and what you would lose to a bad in-game save. A save
@@ -669,7 +669,7 @@ before any task.
 install -r requirements.txt`).
 
 <details>
-<summary><b>Senior detail:</b> fixtures, and two ways a test can lie</summary>
+<summary><b>Advanced detail:</b> fixtures, and two ways a test can lie</summary>
 
 **Fixtures are generated locally and gitignored.** No ROM, save or save state is
 distributed here — `--build-fixtures` makes them from your own build.
@@ -731,7 +731,7 @@ git config core.hooksPath .githooks
 ```
 
 <details>
-<summary><b>Senior detail:</b> what this can and cannot tell you</summary>
+<summary><b>Advanced detail:</b> what this can and cannot tell you</summary>
 
 It checks that the prose was *looked at* since the code changed. It cannot check
 that the prose is correct — nothing can, short of a human reading both.

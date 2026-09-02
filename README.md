@@ -57,7 +57,7 @@ the three front ends share one result shape.
 
 It is written for someone who has not seen the codebase before, with the harder
 material — which ROM routine to hook and why, and the failures that motivated
-each design — folded into collapsible *Senior detail* sections so the main
+each design — folded into collapsible *Advanced detail* sections so the main
 thread stays readable.
 
 Sections that describe code carry a hash of the files they cover, so
