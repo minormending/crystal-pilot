@@ -200,6 +200,11 @@ an empty bag; `heal` declines mid-battle and treats an already-healthy party as
 done rather than as an error. `battle` defaults to playing the battle out rather
 than fleeing — pass `--flee-below F` for the escaping policy.
 
+`capture` does **not** weaken by default, unlike `catch`. Nothing tracks how
+hard your Pokémon hits, so against a much weaker target the gentlest move is
+still lethal — a Lv15 Quilava with `--weaken-to 0.4` knocks out a Lv2 route
+Pokémon rather than catching it. Use it when the levels are close.
+
 ### Battle every trainer on a route
 
 ```bash

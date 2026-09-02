@@ -8,7 +8,9 @@ rebuilt or a new starting situation is needed:
 
 Only situations that are slow to reach get stored. Anything cheap to derive --
 being *in* a battle, having balls in the bag -- is set up at test time instead,
-which keeps the fixture set small and its contents obvious.
+which keeps the fixture set small and its contents obvious. Both of those have
+harness helpers: `give_balls()` writes them into the bag, `into_wild_battle()`
+walks the grass until one starts.
 """
 from __future__ import annotations
 

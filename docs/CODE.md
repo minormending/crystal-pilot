@@ -587,6 +587,13 @@ engine uses internally and passes the answer, which is right in both cases.
 battle to be played out; bailing on low HP would be answering a different
 question. Pass `--flee-below` to get the escaping policy.
 
+**`--weaken-to` can knock out the thing you told it to catch.** Nothing here
+remembers how hard it hits, so the first swing is unguarded — and against a
+much weaker target the gentlest move available is still lethal. Found by the
+test: a Lv15 Quilava with `--weaken-to 0.4` one-shot a Lv2 Hoppip. The command
+defaults to not attacking at all for that reason, and the mobile port carries a
+learned-damage guard the searching `catch` task here would also benefit from.
+
 **`heal` reports an already-healthy party as completed**, not as an error —
 nothing needed doing, which is the outcome the caller wanted. `--force` goes
 anyway, which is also how the round trip gets exercised: verified travelling
@@ -717,7 +724,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/selfcheck.py @ 7e2fcd3e6daa -->
+<!-- covers: run-tests tests/harness.py tests/selfcheck.py @ 9bb3e76c960e -->
 
 ```bash
 ./run-tests                      # everything

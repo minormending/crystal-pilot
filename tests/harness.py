@@ -107,6 +107,16 @@ class Ctx(Check):
     _tmpdirs: list = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
+    def skip(self, why: str):
+        """Bail out of a test without failing it.
+
+        Raised rather than returned, so a caller does not have to remember to
+        stop afterwards. Used where the *game* did not cooperate -- no wild
+        encounter turned up in the tries allowed -- as distinct from the code
+        being wrong, which is a failure.
+        """
+        raise Skipped(why)
+
     def note(self, msg: str) -> None:
         """Attach context to the test's line in the report."""
         self.notes.append(msg)
@@ -186,6 +196,30 @@ class Ctx(Check):
             p.session.wb(base + i * 2, item)
             p.session.wb(base + i * 2 + 1, qty)
         p.session.wb(base + len(entries) * 2, 0xFF)
+
+    def into_wild_battle(self, p, tries: int = 3):
+        """Test-only: walk the grass until a wild battle is under way.
+
+        The other half of what build_fixtures deliberately does not store. It
+        returns at a decision point with the battle structs populated, which is
+        the state a person is in when they reach for `battle` or `capture` --
+        and that matters for more than convenience: the battle menu's hook has
+        already fired by then, which is exactly the situation those two commands
+        have to detect rather than assume.
+
+        Returns the BattleState, or None if nothing turned up.
+        """
+        from pilot.tasks.search import SearchStats, WildSearch
+        search = WildSearch(p.session, p.reader, p.control, p.nav, p.gamedata,
+                            p.traveler, log=lambda *a, **k: None)
+        route = p.reader.location().key
+        for _ in range(tries):
+            if not search.ensure_grass(route):
+                return None
+            battle = search.next_encounter(route, SearchStats())
+            if battle is not None and p.reader.in_battle():
+                return battle
+        return None
 
     def close(self) -> None:
         import shutil
