@@ -41,6 +41,7 @@ Where the two differ, the difference is almost always [section 4](#4-hooks-the-g
 6. [Moving around](#6-moving-around)
 7. [The tasks](#7-the-tasks)
 8. [Three ways to drive it](#8-three-ways-to-drive-it)
+   · [Slots, and undoing a job](#8a-slots-and-undoing-a-job)
 9. [Recording, checkpoints and backups](#9-recording-checkpoints-and-backups)
 10. [Tests](#10-tests)
 11. [Keeping this honest](#11-keeping-this-honest)
@@ -100,7 +101,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 1e81c98f9f78 -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 477424936f1f -->
 
 Roughly 7,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -725,7 +726,7 @@ Master Ball is never thrown unless you name it.
 
 ## 8. Three ways to drive it
 
-<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 525a08268e4d -->
+<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 8bdb5df8eedf -->
 
 The same tasks, three front ends, one `TaskResult` shape between them.
 
@@ -765,6 +766,54 @@ now.
 </details>
 
 ---
+
+## 8a. Slots, and undoing a job
+
+Three slots you pick, plus one the pilot writes for itself before every job.
+
+```bash
+crystal-pilot slots              # what is kept
+crystal-pilot save --slot 2      # this exact moment
+crystal-pilot load --slot 2      # back to it
+crystal-pilot undo               # back to just before the last job
+```
+
+A slot holds a **machine save state** and the `.sav` beside it. PyBoy can put a
+state back, so a slot here is an exact frame: it can be taken mid-battle, and
+loading it returns you to that instant.
+
+**This differs from the mobile port on purpose, and the difference is the
+emulator's.** WasmBoy will capture a state and will not restore one — its
+`loadState` rejects even its own saved states — so mobile slots hold battery
+saves, which makes them save *points*: they cannot be taken in a battle, and
+loading one puts you at the title screen's CONTINUE. Same word, weaker promise.
+If you use both, that is the thing to know.
+
+<details>
+<summary><b>Advanced detail:</b> why the undo point lives in the facade</summary>
+
+**Every job marks an undo point, and it is marked in one place.** `Pilot.grind`,
+`hunt`, `catch`, `trainers`, `battle`, `capture` and `heal` all call
+`mark_undo()` first. It could have gone in each task — four of the seven already
+took a `backups.take` of their own and three did not, which is exactly the
+drift a rule kept in seven places suffers. "Every job is undoable" is a promise
+about the whole surface, so it is kept at the surface.
+
+**The undo slot is not the same thing as a backup**, though both snapshot before
+a task. A backup is insurance against losing a game and is kept for forty sets;
+the undo slot is one step backwards, overwritten by the next job without
+ceremony. Keeping them separate means clearing your undo point cannot cost you
+a backup, and pruning backups cannot cost you your undo.
+
+**`mark_undo` never fails a job.** If snapshotting raises, it says so and the
+job proceeds. Bookkeeping that can refuse the thing you actually asked for is
+worse than bookkeeping that occasionally is not there.
+
+**A slot writes the `.sav` as well as the state**, and `load` writes it back
+out. Otherwise the battery on disk would still describe the game you left, and
+the next in-game save would be layered onto a different game's save file.
+
+</details>
 
 ## 9. Recording, checkpoints and backups
 

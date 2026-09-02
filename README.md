@@ -517,6 +517,29 @@ crystal-pilot backups list
 crystal-pilot backups restore --name 20260831-142320-grind-CYNDAQUIL-L25.state
 ```
 
+## Slots, and undoing a job
+
+```bash
+crystal-pilot slots              # what is kept
+crystal-pilot save --slot 2      # keep this exact moment
+crystal-pilot load --slot 2      # go back to it
+crystal-pilot undo               # back to just before the last job
+```
+
+Three slots you pick, plus one the pilot writes for itself before **every** job
+it runs — so a job is safe to try. If you dislike what a grind or a catch did,
+`undo` puts the game back to the instant before it started.
+
+A slot holds a machine save state and the `.sav` beside it, so it is an exact
+frame: it can be taken mid-battle and loading it returns you to that instant.
+The mobile port's slots are weaker on purpose — its emulator will capture a
+state and refuses to restore one, so slots there are battery saves, cannot be
+taken in a battle, and load back at the title screen's CONTINUE.
+
+The undo slot is deliberately not the same thing as the per-task backup. A
+backup is insurance against losing a game and forty of them are kept; the undo
+slot is one step backwards that the next job overwrites.
+
 ## What it does about the things that go wrong
 
 - **Low HP** — runs from the battle below `--flee-below`, then walks to the

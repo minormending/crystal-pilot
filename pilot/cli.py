@@ -210,6 +210,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="save the game in-game at that point, so the .sav "
                          "continues from there in any emulator")
 
+    sl = sub.add_parser("slots", help="list the save slots")
+    sl.add_argument("--clear", default=None, metavar="N",
+                    help="empty a slot (1, 2, 3 or undo)")
+
+    qs = sub.add_parser("save", help="quick-save the exact moment into a slot")
+    qs.add_argument("--slot", default="1", help="1, 2 or 3 (default 1)")
+
+    ql = sub.add_parser("load", help="load a slot back")
+    ql.add_argument("--slot", default="1", help="1, 2 or 3 (default 1)")
+
+    ud = sub.add_parser("undo",
+                        help="put the game back to just before the last job")
+
     bk = sub.add_parser("backups", help="list or restore save backups")
     bk.add_argument("action", choices=("list", "restore"))
     bk.add_argument("--name", default=None, help="backup .state to restore")
@@ -364,6 +377,65 @@ def main(argv: list[str] | None = None) -> int:
             record=None,
         ).run()
         return 0
+
+    if args.cmd in ("slots", "save", "load", "undo"):
+        pilot = make_pilot(args)
+        try:
+            from .slots import ALL_SLOTS, UNDO_SLOT, describer
+            if args.cmd == "slots":
+                if args.clear:
+                    try:
+                        gone = pilot.slots.clear(args.clear)
+                    except ValueError as e:
+                        print(e, file=sys.stderr)
+                        return 2
+                    print(f"slot {args.clear}: "
+                          f"{'emptied' if gone else 'was already empty'}")
+                    return 0
+                for slot, info in pilot.slots.list().items():
+                    name = "undo" if slot == UNDO_SLOT else f"slot {slot}"
+                    print(f"  {name:<8} {info.describe() if info else 'empty'}")
+                return 0
+
+            # The three below act on a running game, so it has to be loaded
+            # first -- a quick-save of a game that was never started would
+            # snapshot the title screen and call it slot 1.
+            if not pilot.continue_game():
+                print("could not load a save; start a game first",
+                      file=sys.stderr)
+                return 2
+            if args.cmd == "save":
+                try:
+                    info = pilot.slots.save(
+                        args.slot, pilot.session, pilot.reader,
+                        describe=describer(pilot.reader, pilot.gamedata))
+                except ValueError as e:
+                    print(e, file=sys.stderr)
+                    return 2
+                print(f"slot {info.slot}: {info.describe()}")
+                return 0
+            if args.cmd == "load":
+                try:
+                    info = pilot.slots.info(args.slot)
+                except ValueError as e:
+                    print(e, file=sys.stderr)
+                    return 2
+                if info is None:
+                    print(f"slot {args.slot} is empty", file=sys.stderr)
+                    return 2
+                pilot.slots.load(args.slot, pilot.session)
+                print(f"loaded slot {info.slot}: {info.describe()}")
+                return 0
+            # undo
+            info = pilot.undo()
+            if info is None:
+                print("no undo point: no job has run yet", file=sys.stderr)
+                return 2
+            print(f"back to before {info.job or 'the last job'}: "
+                  f"{info.describe()}")
+            return 0
+        finally:
+            pilot.stop(save_sram=False)
 
     if args.cmd == "backups":
         pilot = make_pilot(args)

@@ -12,6 +12,7 @@ from .nav import Navigator
 from .recorder import Recorder
 from .timeline import CheckpointWriter, Timeline
 from .session import Budget, Session
+from .slots import UNDO_SLOT, Slots, describer
 from .state import GameStateReader
 from .tasks.bootstrap import Bootstrap
 from .tasks.grind import GrindTask
@@ -59,6 +60,7 @@ class Pilot:
             backup_dir or (rom.parent / "pilot-backups"),
             sav_path=self.session.sav_path, log=log,
         )
+        self.slots = Slots(self.backups.dir / "slots", log=log)
 
     def calibrate(self, attempts: int = 4) -> bool:
         """Verify the collision decode against the running game.
@@ -202,7 +204,38 @@ class Pilot:
         return rec
 
     # --- tasks -------------------------------------------------------------
+    # --- undo -------------------------------------------------------------
+    def mark_undo(self, job: str) -> bool:
+        """Snapshot the exact moment before a job runs, into the undo slot.
+
+        In the facade rather than in each task, because "every job is undoable"
+        is a promise about the whole surface: four of the seven tasks took a
+        backup of their own and three did not, and a rule kept in seven places
+        is a rule that drifts. Tasks keep their own `backups.take` -- that is
+        long-term insurance against losing a game, which is a different job
+        from one step backwards.
+        """
+        try:
+            info = self.slots.save(UNDO_SLOT, self.session, self.reader,
+                                   job=job,
+                                   describe=describer(self.reader, self.gamedata))
+            self.log(f"undo point kept before {job}")
+            return bool(info)
+        except Exception as e:                        # noqa: BLE001
+            # Never let bookkeeping stop the job the person asked for.
+            self.log(f"could not keep an undo point: {e}")
+            return False
+
+    def undo(self):
+        """Put the game back to before the last job. False if there is none."""
+        info = self.slots.info(UNDO_SLOT)
+        if info is None:
+            return None
+        self.slots.load(UNDO_SLOT, self.session)
+        return info
+
     def grind(self, **kwargs):
+        self.mark_undo("grind")
         if not self.collision.calibrated:
             self.calibrate()
         self._caption_slot = kwargs.get("slot")
@@ -215,6 +248,7 @@ class Pilot:
         return result
 
     def hunt(self, **kwargs):
+        self.mark_undo("hunt")
         if not self.collision.calibrated:
             self.calibrate()
         task = HuntTask(self.session, self.reader, self.control, self.nav,
@@ -223,6 +257,7 @@ class Pilot:
         return task.run(**kwargs)
 
     def catch(self, **kwargs):
+        self.mark_undo("catch")
         if not self.collision.calibrated:
             self.calibrate()
         task = CatchTask(self.session, self.reader, self.control, self.nav,
@@ -238,12 +273,14 @@ class Pilot:
     # collision decode is not needed and asking for one inside a battle would
     # be sampling a map that is not on screen.
     def battle(self, **kwargs):
+        self.mark_undo("battle")
         task = FightTask(self.session, self.reader, self.control, self.nav,
                          self.world, self.gamedata, self.traveler, self.saver,
                          self.backups, log=self.log)
         return task.run(**kwargs)
 
     def capture(self, **kwargs):
+        self.mark_undo("capture")
         task = CaptureTask(self.session, self.reader, self.control, self.nav,
                            self.world, self.gamedata, self.traveler, self.saver,
                            self.backups, log=self.log)
@@ -253,6 +290,7 @@ class Pilot:
         return result
 
     def heal(self, **kwargs):
+        self.mark_undo("heal")
         if not self.collision.calibrated:
             self.calibrate()
         task = HealTask(self.session, self.reader, self.control, self.nav,
@@ -261,6 +299,7 @@ class Pilot:
         return task.run(**kwargs)
 
     def trainers(self, **kwargs):
+        self.mark_undo("trainers")
         if not self.collision.calibrated:
             self.calibrate()
         task = TrainerSweepTask(self.session, self.reader, self.control, self.nav,
