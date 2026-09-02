@@ -577,14 +577,15 @@ each tileset's per-quadrant collision values sit in ROM at
 so movement is a breadth-first search instead of bumping into walls to find them.
 The decode is *verified at runtime* against `wPlayerTileCollision` — the game
 publishes the collision of the tile the player is standing on, so the pilot
-checks its own arithmetic before trusting it. Pathfinding also avoids one-way
-ledges, which otherwise strand you in a region with no way back up.
+checks its own arithmetic before trusting it. That check is necessary but not
+sufficient, and item 4 below says why. Pathfinding also avoids one-way ledges,
+which otherwise strand you in a region with no way back up.
 
 **Game data from source.** Species ids, move power/type/PP, map names and
 walkability tables are parsed out of the pokecrystal source tree, so they cannot
 drift from the ROM being driven.
 
-### Three things that are easy to get wrong
+### Four things that are easy to get wrong
 
 Worth knowing if you extend this:
 
@@ -604,6 +605,20 @@ Worth knowing if you extend this:
    pressing buttons while still in the menus. `wMapStatus == MAPSTATUS_HANDLE`
    with a published map size is the real signal.
 
+4. **One tile cannot pin down the collision offset.** Reproducing
+   `wPlayerTileCollision` from a candidate offset is the right check, but a
+   wrong offset can reproduce it by luck — most easily where the collision byte
+   is a common value. Measured in the mobile port, which uses the same
+   technique: standing on a doorway mid-transition, the true offset did not
+   match and a fallback did, so the whole map decoded shifted and a route that
+   existed looked walled off. It fails silently in the worst way, by producing a
+   confident map rather than an error. This project is much less exposed —
+   `Pilot.calibrate` settles and nudges with a step first, so it is rarely
+   sampling a transition — but if you extend it, do not treat a single match as
+   proof. Ask for the same offset twice, for the same player tile, a few frames
+   apart, and re-derive anything you cached from a snapshot taken while the map
+   was still loading.
+
 Also: PyBoy's hooks only fire for routines in low ROM banks. Everything hooked
 here is in bank 0x10 or below and verified to fire; `Session` checks the bank of
 each hook at startup so a future addition fails loudly instead of quietly never
@@ -615,8 +630,30 @@ The web UI above keeps the emulator on your Mac. If you want the whole thing on
 the device, that is a separate exploration:
 **[crystal-pilot-mobile](https://github.com/minormending/crystal-pilot-mobile)**
 — a browser build that boots the ROM on the phone, measured at 37x real time
-against this project's 470x. It proves the platform port; the task loop there is
-not yet finished.
+against this project's 470x. It is live at
+<https://minormending.github.io/crystal-pilot-mobile/>: open it on a phone, pick
+your own ROM and `.sym`, and it runs.
+
+The task loop there is no longer just a platform proof. It starts a new game,
+grinds while healing itself at a Pokémon Center, hunts, and catches — the same
+loops as here, rewritten against polled memory instead of CPU hooks, because no
+browser core offers breakpoints. It reads its own game data out of the
+cartridge rather than the disassembly, since a phone has the ROM and the `.sym`
+and nothing else: species and item names, wild tables, the move table, map
+connections and warps, and the live object list.
+
+Two things it found are worth knowing here.
+
+The first is that **`wBalls` does not settle until a battle ends** — a Pokémon
+can already be caught while the bag still reads five. What this project reports
+is safe, because `catch.py` counts the balls it throws rather than differencing
+the bag. Its one mid-battle `ball_count` guard cannot fire, though: running dry
+mid-capture surfaces as a throw that cannot find a ball rather than as
+`no_balls`, and the throw budget is what actually ends the loop.
+
+The second is the one that matters if you extend either half: verifying the
+collision decode against a single tile is necessary but **not sufficient** — see
+below.
 
 ## Limits
 
