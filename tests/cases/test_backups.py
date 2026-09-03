@@ -77,7 +77,9 @@ def _(t):
     """
     import os
 
-    d = Path(t.rom_copy("backup-prune")).parent / "backups"
+    # A temp directory is all this needs. It used to ask for a ROM copy,
+    # which meant it skipped itself on CI for no reason at all.
+    d = t.scratch("backup-prune") / "backups"
     sav = d.parent / "fake.sav"
     sav.parent.mkdir(parents=True, exist_ok=True)
 
@@ -115,7 +117,7 @@ def _(t):
     made it look exactly like the half-written backup that prune-by-set exists
     to clear away. Sweeping it up would delete a deliberate hand-off.
     """
-    d = Path(t.rom_copy("backup-foreign")).parent / "backups"
+    d = t.scratch("backup-foreign") / "backups"
     sav = d.parent / "fake.sav"
     sav.parent.mkdir(parents=True, exist_ok=True)
     sav.write_bytes(b"\x01" * 64)

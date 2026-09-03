@@ -596,16 +596,28 @@ contain game data — so generate them once after building your ROM:
 ./run-tests --build-fixtures
 ```
 
-The badge at the top covers the `data-tests` job. CI has no ROM, so the 67 tests
-that drive a real emulator skip themselves and the 16 that only read the
-disassembly's data files run: names, move data, map connections, warps, trainers
-and the timeline logic. The runner says so rather than reporting a bare pass:
+The badge at the top covers the `data-tests` job. CI has the disassembly but no
+ROM — building one needs rgbds, and no ROM is distributed — so the tests that
+drive a real emulator skip themselves. The runner says so rather than reporting
+a bare pass:
 
 ```
-16 passed, 67 skipped, 0 failed  (0.1s)
+33 passed, 86 skipped, 0 failed  (0.1s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (67 tests need a ROM built from the disassembly)
-``` Only slow-to-reach situations are
+  (86 tests need a ROM built from the disassembly)
+```
+
+That used to be 20 of 108, and the 20 only read data files — the badge covered
+nothing that made a decision. `tests/fake.py` closed part of that gap: a
+stand-in session over a work-RAM buffer with scripted button responses, on the
+observation that the bugs this pilot has shipped were decisions about a game
+state rather than anything needing a cartridge. The real readers, the real
+symbol-table parser and the real capture logic run against it, so the learned-
+damage guard, the knockout reporting, the weakening bound and the half-read
+battle check are all verified on every push.
+
+The remaining 86 are genuine integration tests — walking, the intro, crossing
+maps, a real save — and those still want a ROM. Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
 
