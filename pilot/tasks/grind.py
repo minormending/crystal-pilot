@@ -4,11 +4,10 @@ from __future__ import annotations
 import time
 
 from ..battle import BattleEngine, BattlePolicy
-from ..session import PilotTimeout
-from .base import TaskResult
+from .base import TaskLifecycle, TaskResult
 
 
-class GrindTask:
+class GrindTask(TaskLifecycle):
     name = "grind"
 
     def __init__(self, session, reader, control, nav, world, gamedata,
@@ -60,7 +59,6 @@ class GrindTask:
         route_key = loc.key
         self.log(f"grind: {mon.species_name} Lv{mon.level} -> Lv{to_level} on {route}")
 
-        res.backup = self.backups.take(self.s, f"grind-{mon.species_name}-L{to_level}")
 
         engine = BattleEngine(
             self.s, self.r, self.c, self.gd,
@@ -71,10 +69,9 @@ class GrindTask:
 
         stats = {"battles": 0, "won": 0, "fled": 0, "heals": 0, "encounters": 0}
         t0 = time.monotonic()
-        timed_out = False
         blocked_reason = None
 
-        try:
+        with self.budgeted(res, f"grind-{mon.species_name}-L{to_level}") as run:
             if not self._ensure_grass(route_key):
                 res.status = "blocked"
                 res.message = (f"no grass found on {route} -- stand on a route "
@@ -133,14 +130,8 @@ class GrindTask:
                     blocked_reason = "a battle stopped responding"
                     break
 
-        except PilotTimeout as e:
-            timed_out = True
-            self.log(f"grind: {e}")
-            # Grant headroom so we can still exit cleanly and save.
-            self.s.budget.open_reserve()
-
         # --- wrap up -------------------------------------------------------
-        try:
+        with self.wrapping(res):
             self._leave_battle_if_any(engine)
             mon = self.r.mon(target_slot)
             stats["level"] = mon.level
@@ -152,7 +143,7 @@ class GrindTask:
                 res.status = "completed"
                 res.message = (f"{mon.species_name} reached Lv{mon.level} "
                                f"(from Lv{start_level}) on {route}")
-            elif timed_out:
+            elif run.timed_out:
                 res.status = "timeout"
                 res.message = (f"gave up at Lv{mon.level} (target Lv{to_level}); "
                                f"gained {mon.level - start_level} level(s)")
@@ -168,12 +159,9 @@ class GrindTask:
                 res.saved = self.saver.save_in_game()
                 if not res.saved:
                     res.note("in-game save did not commit; the backup is still intact")
-            elif timed_out and on_timeout == "revert":
+            elif run.timed_out and on_timeout == "revert":
                 self.backups.restore(self.s, res.backup)
                 res.note("reverted to the pre-task backup as requested")
-        except PilotTimeout:
-            res.note("ran out of budget during cleanup; nothing was saved")
-        res.stats = stats
         return res
 
     # --- helpers -----------------------------------------------------------

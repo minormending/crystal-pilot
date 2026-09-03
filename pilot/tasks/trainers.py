@@ -4,14 +4,13 @@ from __future__ import annotations
 import time
 
 from ..battle import BattleEngine, BattlePolicy
-from ..session import PilotTimeout
-from .base import TaskResult
+from .base import TaskLifecycle, TaskResult
 
 # Which way to face to talk to someone standing on the adjacent tile.
 FACE_FROM = {(0, 1): "up", (0, -1): "down", (1, 0): "left", (-1, 0): "right"}
 
 
-class TrainerSweepTask:
+class TrainerSweepTask(TaskLifecycle):
     name = "trainers"
 
     def __init__(self, session, reader, control, nav, world, gamedata,
@@ -47,7 +46,6 @@ class TrainerSweepTask:
             trainers = trainers[:max_trainers]
 
         self.log(f"trainers: {len(trainers)} on {route}")
-        res.backup = self.backups.take(self.s, f"trainers-{route_const}")
 
         # Trainer battles cannot be run from, so the policy never tries.
         engine = BattleEngine(
@@ -61,10 +59,9 @@ class TrainerSweepTask:
         stats = {"trainers": len(trainers), "beaten": 0, "already_beaten": 0,
                  "not_present": 0, "unreachable": 0}
         t0 = time.monotonic()
-        timed_out = False
         lost = False
 
-        try:
+        with self.budgeted(res, f"trainers-{route_const}") as run:
             for i, t in enumerate(trainers, 1):
                 mon = self._lead()
                 if mon is None or mon.hp_frac < heal_below:
@@ -110,13 +107,8 @@ class TrainerSweepTask:
                 self.c.run_scripts()      # post-battle chat
                 self._await_out_of_battle()
 
-        except PilotTimeout as e:
-            timed_out = True
-            self.log(f"trainers: {e}")
-            self.s.budget.open_reserve()
-
         # --- wrap up --------------------------------------------------------
-        try:
+        with self.wrapping(res):
             if self.r.in_battle():
                 engine.run(target_slot=None, max_turns=40)
             self.n.settle()
@@ -127,7 +119,7 @@ class TrainerSweepTask:
                 res.status = "blocked"
                 res.message = (f"blacked out on {route} after beating "
                                f"{stats['beaten']} trainer(s)")
-            elif timed_out:
+            elif run.timed_out:
                 res.status = "timeout"
                 res.message = (f"gave up after beating {stats['beaten']} of "
                                f"{len(trainers)} trainer(s) on {route}")
@@ -146,8 +138,6 @@ class TrainerSweepTask:
             if save_when_done and not self.r.in_battle():
                 res.saved = self.saver.save_in_game()
             res.stats = stats
-        except PilotTimeout:
-            res.note("ran out of budget during cleanup")
         return res
 
     # --- helpers -----------------------------------------------------------

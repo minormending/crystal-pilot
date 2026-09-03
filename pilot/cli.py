@@ -278,6 +278,390 @@ def start_recording(pilot, args, title: str, path=None):
     )
 
 
+
+# --- one handler per command -------------------------------------------------
+#
+# main() used to be 342 lines and six-deep in `if args.cmd ==`, at 35% coverage
+# in a codebase whose median function is eight lines. Nothing about a command's
+# argument wiring could be exercised without running the whole CLI, so a typo in
+# `args.foo` surfaced when a person used it.
+#
+# Two kinds of command, and the split is real rather than tidy. The first group
+# owns its whole lifecycle -- it builds whatever session it needs and returns.
+# The second wants a pilot with a game already loaded, which is the setup they
+# were all repeating. `bootstrap` is neither: it wants the pilot and explicitly
+# not a loaded game, which is the whole point of it.
+
+
+def cmd_play(args) -> int:
+    pilot = make_pilot(args, window="SDL2", speed=1)
+    from .interactive import InteractiveSession
+    if args.new_game:
+        pilot.bootstrap(starter=args.starter)
+    elif not pilot.continue_game():
+        print("could not load a save; pass --new-game to start fresh",
+              file=sys.stderr)
+        return 1
+    def record_task(worker, title, take):
+        if not args.record:
+            return None
+        target = Path(args.record)
+        # One file per dispatched task, numbered in order.
+        numbered = target.with_name(f"{target.stem}-{take}{target.suffix}")
+        return start_recording(worker, args, title, path=numbered)
+
+    InteractiveSession(
+        pilot, default_timeout=args.timeout,
+        worker_factory=lambda: make_pilot(args, window="null", speed=0),
+        record=record_task if args.record else None,
+        source=args.source, in_game_menu=not args.no_menu,
+    ).run()
+    return 0
+
+
+
+def cmd_serve(args) -> int:
+    pilot = make_pilot(args, window="null", speed=0)
+    if args.new_game:
+        pilot.bootstrap(starter=args.starter)
+    elif not pilot.continue_game():
+        print("could not load a save; pass --new-game to start fresh",
+              file=sys.stderr)
+        return 1
+    from .webui import WebPilot
+    WebPilot(pilot, source=args.source, host=args.host, port=args.port,
+             token=args.token, timeout=args.timeout,
+             allow_input=not args.no_input).run()
+    return 0
+
+
+
+def cmd_timeline(args) -> int:
+    try:
+        print(Timeline(args.path).render(limit=args.limit))
+    except (FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 0
+
+
+
+def cmd_resume(args) -> int:
+    try:
+        tl = Timeline(args.path)
+        cp = tl.resolve(args.at)
+    except (FileNotFoundError, ValueError, LookupError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if args.snap and not cp.savable:
+        near = tl.nearest_savable(cp)
+        if near is None:
+            print("no savable checkpoint exists in this run", file=sys.stderr)
+            return 2
+        print(f"snapped from #{cp.index} (mid-battle) to #{near.index}")
+        cp = near
+    window = "null" if args.headless else "SDL2"
+    pilot = make_pilot(args, window=window, speed=0 if args.headless else 1)
+    # Flushed so it stays ahead of anything written to stderr below, which
+    # is unbuffered and would otherwise appear first when piped.
+    print(f"resuming at {cp.label()}", flush=True)
+    pilot.resume_from(tl, cp)
+    if args.commit:
+        ok, why = pilot.settle_for_save()
+        if not ok:
+            print(f"could not save here: {why}", file=sys.stderr)
+            near = tl.nearest_savable(cp)
+            if near is not None and near.index != cp.index:
+                print(f"nearest savable point is #{near.index} "
+                      f"({near.summary}) -- retry with --at #{near.index}",
+                      file=sys.stderr)
+        elif pilot.save():
+            print("saved -- the .sav now continues from this point")
+        else:
+            print("in-game save did not commit", file=sys.stderr)
+    if args.headless:
+        pilot.stop(save_sram=args.commit)
+        return 0
+    from .interactive import InteractiveSession
+    InteractiveSession(
+        pilot, default_timeout=args.timeout,
+        worker_factory=lambda: make_pilot(args, window="null", speed=0),
+        record=None,
+    ).run()
+    return 0
+
+
+
+def cmd_slots(args) -> int:
+    pilot = make_pilot(args)
+    try:
+        from .slots import ALL_SLOTS, UNDO_SLOT, describer
+        if args.cmd == "slots":
+            if args.clear:
+                try:
+                    gone = pilot.slots.clear(args.clear)
+                except ValueError as e:
+                    print(e, file=sys.stderr)
+                    return 2
+                print(f"slot {args.clear}: "
+                      f"{'emptied' if gone else 'was already empty'}")
+                return 0
+            for slot, info in pilot.slots.list().items():
+                name = "undo" if slot == UNDO_SLOT else f"slot {slot}"
+                print(f"  {name:<8} {info.describe() if info else 'empty'}")
+            return 0
+
+        # The three below act on a running game, so it has to be loaded
+        # first -- a quick-save of a game that was never started would
+        # snapshot the title screen and call it slot 1.
+        if not pilot.continue_game():
+            print("could not load a save; start a game first",
+                  file=sys.stderr)
+            return 2
+        if args.cmd == "save":
+            try:
+                info = pilot.slots.save(
+                    args.slot, pilot.session, pilot.reader,
+                    describe=describer(pilot.reader, pilot.gamedata))
+            except ValueError as e:
+                print(e, file=sys.stderr)
+                return 2
+            print(f"slot {info.slot}: {info.describe()}")
+            return 0
+        if args.cmd == "load":
+            try:
+                info = pilot.slots.info(args.slot)
+            except ValueError as e:
+                print(e, file=sys.stderr)
+                return 2
+            if info is None:
+                print(f"slot {args.slot} is empty", file=sys.stderr)
+                return 2
+            pilot.slots.load(args.slot, pilot.session)
+            print(f"loaded slot {info.slot}: {info.describe()}")
+            return 0
+        # undo
+        info = pilot.undo()
+        if info is None:
+            print("no undo point: no job has run yet", file=sys.stderr)
+            return 2
+        print(f"back to before {info.job or 'the last job'}: "
+              f"{info.describe()}")
+        return 0
+    finally:
+        pilot.stop(save_sram=False)
+
+
+
+def cmd_backups(args) -> int:
+    pilot = make_pilot(args)
+    try:
+        if args.action == "list":
+            items = pilot.backups.list()
+            if not items:
+                print(f"no backups in {pilot.backups.dir}")
+            for f in items:
+                print(f"  {f.name}")
+            return 0
+        if not args.name:
+            print("--name is required to restore", file=sys.stderr)
+            return 2
+        from .backup import BackupSet
+        state = pilot.backups.dir / args.name
+        if not state.exists():
+            print(f"no such backup: {state}", file=sys.stderr)
+            return 2
+        sav = state.with_suffix(".sav")
+        # restore() flushes SRAM itself, before it copies the .sav in --
+        # flushing afterwards is what used to overwrite the restored bytes.
+        exact = pilot.backups.restore(pilot.session, BackupSet(
+            label=args.name, state=state,
+            sav=sav if sav.exists() else None, when="restore"))
+        print(f"restored {args.name}"
+              f"{'' if exact else ' (machine state only -- no .sav in the set)'}")
+        return 0
+    finally:
+        pilot.stop(save_sram=False)
+
+
+
+def cmd_bootstrap(pilot, args) -> int:
+    title = f"new game: {args.starter}"
+    start_recording(pilot, args, title)
+    start_checkpoints(pilot, args, title)
+    try:
+        summary = pilot.bootstrap(starter=args.starter,
+                                  to_route=not args.no_route)
+        print(summary)
+        saved = pilot.save()
+    finally:
+        rec = pilot.stop_recording()
+        cps = pilot.stop_checkpoints()
+        if args.quiet:
+            for r in (rec, cps):
+                if r:
+                    print(r.describe())   # results, not progress chatter
+    print(f"saved: {'yes' if saved else 'no'}")
+    return 0 if saved else 1
+
+
+
+def cmd_status(pilot, args) -> int:
+    print(pilot.status())
+    return 0
+
+
+
+def cmd_hunt(pilot, args) -> int:
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
+                                    max_wall_seconds=args.timeout))
+    target = args.species or ("a shiny" if args.shiny else "anything")
+    title = f"hunt {target}"
+    start_recording(pilot, args, title)
+    start_checkpoints(pilot, args, title)
+    result = pilot.hunt(
+        species=args.species, shiny=args.shiny,
+        min_level=args.min_level, max_encounters=args.max_encounters,
+        heal_below=args.heal_below, keep_battle=not args.leave,
+    )
+    rec = pilot.stop_recording()
+    cps = pilot.stop_checkpoints()
+    print(result.render())
+    if args.quiet:
+        for r in (rec, cps):
+            if r:
+                print(r.describe())
+    return 0 if result.ok else 1
+
+
+
+def cmd_battle(pilot, args) -> int:
+    # A battle is minutes at most, so a much smaller budget than the
+    # searching tasks get.
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 20,
+                                    max_wall_seconds=args.timeout))
+    result = pilot.battle(
+        target_slot=None if args.slot is None else args.slot - 1,
+        flee_below=args.flee_below, max_turns=args.max_turns,
+    )
+    print(result.render())
+    return 0 if result.ok else 1
+
+
+
+def cmd_capture(pilot, args) -> int:
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 20,
+                                    max_wall_seconds=args.timeout))
+    result = pilot.capture(
+        ball=args.ball, weaken_to=args.weaken_to,
+        max_balls=args.max_balls, save_when_done=not args.no_save,
+    )
+    print(result.render())
+    return 0 if result.ok else 1
+
+
+
+def cmd_heal(pilot, args) -> int:
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 4,
+                                    max_wall_seconds=args.timeout))
+    result = pilot.heal(force=args.force)
+    print(result.render())
+    return 0 if result.ok else 1
+
+
+
+def cmd_catch(pilot, args) -> int:
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
+                                    max_wall_seconds=args.timeout))
+    target = args.species or ("a shiny" if args.shiny else "anything")
+    title = f"catch {target}"
+    start_recording(pilot, args, title)
+    start_checkpoints(pilot, args, title)
+    result = pilot.catch(
+        species=args.species, shiny=args.shiny, ball=args.ball,
+        weaken_to=args.weaken_to, max_encounters=args.max_encounters,
+        max_balls=args.max_balls, heal_below=args.heal_below,
+        save_when_done=not args.no_save,
+    )
+    rec = pilot.stop_recording()
+    cps = pilot.stop_checkpoints()
+    print(result.render())
+    if args.quiet:
+        for r in (rec, cps):
+            if r:
+                print(r.describe())
+    return 0 if result.ok else 1
+
+
+
+def cmd_trainers(pilot, args) -> int:
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
+                                    max_wall_seconds=args.timeout))
+    title = "battle every trainer on the route"
+    start_recording(pilot, args, title)
+    start_checkpoints(pilot, args, title)
+    result = pilot.trainers(
+        heal_below=args.heal_below, max_trainers=args.max_trainers,
+        allow_evolution=not args.no_evolve,
+        learn_new_moves=args.learn_moves,
+        save_when_done=not args.no_save,
+    )
+    rec = pilot.stop_recording()
+    cps = pilot.stop_checkpoints()
+    print(result.render())
+    if args.quiet:
+        for r in (rec, cps):
+            if r:
+                print(r.describe())
+    return 0 if result.ok else 1
+
+
+
+def cmd_grind(pilot, args) -> int:
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
+                                    max_wall_seconds=args.timeout))
+    who = args.species or (f"slot {args.slot}" if args.slot else "slot 1")
+    title = f"grind {who} -> Lv{args.to_level}"
+    start_recording(pilot, args, title)
+    start_checkpoints(pilot, args, title)
+    result = pilot.grind(
+        species=args.species,
+        slot=(args.slot - 1) if args.slot else None,
+        to_level=args.to_level,
+        heal_below=args.heal_below,
+        flee_below=args.flee_below,
+        allow_evolution=not args.no_evolve,
+        learn_new_moves=args.learn_moves,
+        save_when_done=not args.no_save,
+        on_timeout=args.on_timeout,
+    )
+    rec = pilot.stop_recording()
+    cps = pilot.stop_checkpoints()
+    print(result.render())
+    if args.quiet:
+        for r in (rec, cps):
+            if r:
+                print(r.describe())
+    return 0 if result.ok else 1
+
+
+# Commands that manage their own session and return.
+STANDALONE = {
+    "play": cmd_play, "serve": cmd_serve, "timeline": cmd_timeline,
+    "resume": cmd_resume, "backups": cmd_backups,
+    # One handler, four command names: they differ only in what they do with a
+    # slot, and the parser gives them separate subcommands for the help text.
+    "slots": cmd_slots, "save": cmd_slots, "load": cmd_slots, "undo": cmd_slots,
+}
+
+# Commands that want a pilot with the existing save loaded.
+IN_GAME = {
+    "status": cmd_status, "hunt": cmd_hunt, "battle": cmd_battle,
+    "capture": cmd_capture, "heal": cmd_heal, "catch": cmd_catch,
+    "trainers": cmd_trainers, "grind": cmd_grind,
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     rom = Path(args.rom)
@@ -287,336 +671,27 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
 
-    if args.cmd == "play":
-        pilot = make_pilot(args, window="SDL2", speed=1)
-        from .interactive import InteractiveSession
-        if args.new_game:
-            pilot.bootstrap(starter=args.starter)
-        elif not pilot.continue_game():
-            print("could not load a save; pass --new-game to start fresh",
-                  file=sys.stderr)
-            return 1
-        def record_task(worker, title, take):
-            if not args.record:
-                return None
-            target = Path(args.record)
-            # One file per dispatched task, numbered in order.
-            numbered = target.with_name(f"{target.stem}-{take}{target.suffix}")
-            return start_recording(worker, args, title, path=numbered)
-
-        InteractiveSession(
-            pilot, default_timeout=args.timeout,
-            worker_factory=lambda: make_pilot(args, window="null", speed=0),
-            record=record_task if args.record else None,
-            source=args.source, in_game_menu=not args.no_menu,
-        ).run()
-        return 0
-
-    if args.cmd == "serve":
-        pilot = make_pilot(args, window="null", speed=0)
-        if args.new_game:
-            pilot.bootstrap(starter=args.starter)
-        elif not pilot.continue_game():
-            print("could not load a save; pass --new-game to start fresh",
-                  file=sys.stderr)
-            return 1
-        from .webui import WebPilot
-        WebPilot(pilot, source=args.source, host=args.host, port=args.port,
-                 token=args.token, timeout=args.timeout,
-                 allow_input=not args.no_input).run()
-        return 0
-
-    if args.cmd == "timeline":
-        try:
-            print(Timeline(args.path).render(limit=args.limit))
-        except (FileNotFoundError, ValueError) as e:
-            print(str(e), file=sys.stderr)
-            return 2
-        return 0
-
-    if args.cmd == "resume":
-        try:
-            tl = Timeline(args.path)
-            cp = tl.resolve(args.at)
-        except (FileNotFoundError, ValueError, LookupError) as e:
-            print(str(e), file=sys.stderr)
-            return 2
-        if args.snap and not cp.savable:
-            near = tl.nearest_savable(cp)
-            if near is None:
-                print("no savable checkpoint exists in this run", file=sys.stderr)
-                return 2
-            print(f"snapped from #{cp.index} (mid-battle) to #{near.index}")
-            cp = near
-        window = "null" if args.headless else "SDL2"
-        pilot = make_pilot(args, window=window, speed=0 if args.headless else 1)
-        # Flushed so it stays ahead of anything written to stderr below, which
-        # is unbuffered and would otherwise appear first when piped.
-        print(f"resuming at {cp.label()}", flush=True)
-        pilot.resume_from(tl, cp)
-        if args.commit:
-            ok, why = pilot.settle_for_save()
-            if not ok:
-                print(f"could not save here: {why}", file=sys.stderr)
-                near = tl.nearest_savable(cp)
-                if near is not None and near.index != cp.index:
-                    print(f"nearest savable point is #{near.index} "
-                          f"({near.summary}) -- retry with --at #{near.index}",
-                          file=sys.stderr)
-            elif pilot.save():
-                print("saved -- the .sav now continues from this point")
-            else:
-                print("in-game save did not commit", file=sys.stderr)
-        if args.headless:
-            pilot.stop(save_sram=args.commit)
-            return 0
-        from .interactive import InteractiveSession
-        InteractiveSession(
-            pilot, default_timeout=args.timeout,
-            worker_factory=lambda: make_pilot(args, window="null", speed=0),
-            record=None,
-        ).run()
-        return 0
-
-    if args.cmd in ("slots", "save", "load", "undo"):
-        pilot = make_pilot(args)
-        try:
-            from .slots import ALL_SLOTS, UNDO_SLOT, describer
-            if args.cmd == "slots":
-                if args.clear:
-                    try:
-                        gone = pilot.slots.clear(args.clear)
-                    except ValueError as e:
-                        print(e, file=sys.stderr)
-                        return 2
-                    print(f"slot {args.clear}: "
-                          f"{'emptied' if gone else 'was already empty'}")
-                    return 0
-                for slot, info in pilot.slots.list().items():
-                    name = "undo" if slot == UNDO_SLOT else f"slot {slot}"
-                    print(f"  {name:<8} {info.describe() if info else 'empty'}")
-                return 0
-
-            # The three below act on a running game, so it has to be loaded
-            # first -- a quick-save of a game that was never started would
-            # snapshot the title screen and call it slot 1.
-            if not pilot.continue_game():
-                print("could not load a save; start a game first",
-                      file=sys.stderr)
-                return 2
-            if args.cmd == "save":
-                try:
-                    info = pilot.slots.save(
-                        args.slot, pilot.session, pilot.reader,
-                        describe=describer(pilot.reader, pilot.gamedata))
-                except ValueError as e:
-                    print(e, file=sys.stderr)
-                    return 2
-                print(f"slot {info.slot}: {info.describe()}")
-                return 0
-            if args.cmd == "load":
-                try:
-                    info = pilot.slots.info(args.slot)
-                except ValueError as e:
-                    print(e, file=sys.stderr)
-                    return 2
-                if info is None:
-                    print(f"slot {args.slot} is empty", file=sys.stderr)
-                    return 2
-                pilot.slots.load(args.slot, pilot.session)
-                print(f"loaded slot {info.slot}: {info.describe()}")
-                return 0
-            # undo
-            info = pilot.undo()
-            if info is None:
-                print("no undo point: no job has run yet", file=sys.stderr)
-                return 2
-            print(f"back to before {info.job or 'the last job'}: "
-                  f"{info.describe()}")
-            return 0
-        finally:
-            pilot.stop(save_sram=False)
-
-    if args.cmd == "backups":
-        pilot = make_pilot(args)
-        try:
-            if args.action == "list":
-                items = pilot.backups.list()
-                if not items:
-                    print(f"no backups in {pilot.backups.dir}")
-                for f in items:
-                    print(f"  {f.name}")
-                return 0
-            if not args.name:
-                print("--name is required to restore", file=sys.stderr)
-                return 2
-            from .backup import BackupSet
-            state = pilot.backups.dir / args.name
-            if not state.exists():
-                print(f"no such backup: {state}", file=sys.stderr)
-                return 2
-            sav = state.with_suffix(".sav")
-            # restore() flushes SRAM itself, before it copies the .sav in --
-            # flushing afterwards is what used to overwrite the restored bytes.
-            exact = pilot.backups.restore(pilot.session, BackupSet(
-                label=args.name, state=state,
-                sav=sav if sav.exists() else None, when="restore"))
-            print(f"restored {args.name}"
-                  f"{'' if exact else ' (machine state only -- no .sav in the set)'}")
-            return 0
-        finally:
-            pilot.stop(save_sram=False)
+    if args.cmd in STANDALONE:
+        return STANDALONE[args.cmd](args)
 
     pilot = make_pilot(args)
     try:
         if args.cmd == "bootstrap":
-            title = f"new game: {args.starter}"
-            start_recording(pilot, args, title)
-            start_checkpoints(pilot, args, title)
-            try:
-                summary = pilot.bootstrap(starter=args.starter,
-                                          to_route=not args.no_route)
-                print(summary)
-                saved = pilot.save()
-            finally:
-                rec = pilot.stop_recording()
-                cps = pilot.stop_checkpoints()
-                if args.quiet:
-                    for r in (rec, cps):
-                        if r:
-                            print(r.describe())   # results, not progress chatter
-            print(f"saved: {'yes' if saved else 'no'}")
-            return 0 if saved else 1
+            return cmd_bootstrap(pilot, args)
 
-        # grind and status both need the existing save loaded
+        # Everything below needs the existing save loaded.
         if not pilot.continue_game():
             print("could not load a save. Run `crystal-pilot bootstrap` first "
                   "to start a new game.", file=sys.stderr)
             return 1
 
-        if args.cmd == "status":
-            print(pilot.status())
-            return 0
-
-        if args.cmd == "hunt":
-            pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
-                                            max_wall_seconds=args.timeout))
-            target = args.species or ("a shiny" if args.shiny else "anything")
-            title = f"hunt {target}"
-            start_recording(pilot, args, title)
-            start_checkpoints(pilot, args, title)
-            result = pilot.hunt(
-                species=args.species, shiny=args.shiny,
-                min_level=args.min_level, max_encounters=args.max_encounters,
-                heal_below=args.heal_below, keep_battle=not args.leave,
-            )
-            rec = pilot.stop_recording()
-            cps = pilot.stop_checkpoints()
-            print(result.render())
-            if args.quiet:
-                for r in (rec, cps):
-                    if r:
-                        print(r.describe())
-            return 0 if result.ok else 1
-
-        if args.cmd == "battle":
-            # A battle is minutes at most, so a much smaller budget than the
-            # searching tasks get.
-            pilot.session.set_budget(Budget(max_frames=60 * 60 * 20,
-                                            max_wall_seconds=args.timeout))
-            result = pilot.battle(
-                target_slot=None if args.slot is None else args.slot - 1,
-                flee_below=args.flee_below, max_turns=args.max_turns,
-            )
-            print(result.render())
-            return 0 if result.ok else 1
-
-        if args.cmd == "capture":
-            pilot.session.set_budget(Budget(max_frames=60 * 60 * 20,
-                                            max_wall_seconds=args.timeout))
-            result = pilot.capture(
-                ball=args.ball, weaken_to=args.weaken_to,
-                max_balls=args.max_balls, save_when_done=not args.no_save,
-            )
-            print(result.render())
-            return 0 if result.ok else 1
-
-        if args.cmd == "heal":
-            pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 4,
-                                            max_wall_seconds=args.timeout))
-            result = pilot.heal(force=args.force)
-            print(result.render())
-            return 0 if result.ok else 1
-
-        if args.cmd == "catch":
-            pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
-                                            max_wall_seconds=args.timeout))
-            target = args.species or ("a shiny" if args.shiny else "anything")
-            title = f"catch {target}"
-            start_recording(pilot, args, title)
-            start_checkpoints(pilot, args, title)
-            result = pilot.catch(
-                species=args.species, shiny=args.shiny, ball=args.ball,
-                weaken_to=args.weaken_to, max_encounters=args.max_encounters,
-                max_balls=args.max_balls, heal_below=args.heal_below,
-                save_when_done=not args.no_save,
-            )
-            rec = pilot.stop_recording()
-            cps = pilot.stop_checkpoints()
-            print(result.render())
-            if args.quiet:
-                for r in (rec, cps):
-                    if r:
-                        print(r.describe())
-            return 0 if result.ok else 1
-
-        if args.cmd == "trainers":
-            pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
-                                            max_wall_seconds=args.timeout))
-            title = "battle every trainer on the route"
-            start_recording(pilot, args, title)
-            start_checkpoints(pilot, args, title)
-            result = pilot.trainers(
-                heal_below=args.heal_below, max_trainers=args.max_trainers,
-                allow_evolution=not args.no_evolve,
-                learn_new_moves=args.learn_moves,
-                save_when_done=not args.no_save,
-            )
-            rec = pilot.stop_recording()
-            cps = pilot.stop_checkpoints()
-            print(result.render())
-            if args.quiet:
-                for r in (rec, cps):
-                    if r:
-                        print(r.describe())
-            return 0 if result.ok else 1
-
-        if args.cmd == "grind":
-            pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
-                                            max_wall_seconds=args.timeout))
-            who = args.species or (f"slot {args.slot}" if args.slot else "slot 1")
-            title = f"grind {who} -> Lv{args.to_level}"
-            start_recording(pilot, args, title)
-            start_checkpoints(pilot, args, title)
-            result = pilot.grind(
-                species=args.species,
-                slot=(args.slot - 1) if args.slot else None,
-                to_level=args.to_level,
-                heal_below=args.heal_below,
-                flee_below=args.flee_below,
-                allow_evolution=not args.no_evolve,
-                learn_new_moves=args.learn_moves,
-                save_when_done=not args.no_save,
-                on_timeout=args.on_timeout,
-            )
-            rec = pilot.stop_recording()
-            cps = pilot.stop_checkpoints()
-            print(result.render())
-            if args.quiet:
-                for r in (rec, cps):
-                    if r:
-                        print(r.describe())
-            return 0 if result.ok else 1
+        handler = IN_GAME.get(args.cmd)
+        if handler is None:
+            # Unreachable while the table and the parser agree, which a test
+            # asserts. Better than falling off the end reporting success.
+            print(f"no handler for {args.cmd!r}", file=sys.stderr)
+            return 2
+        return handler(pilot, args)
     finally:
         pilot.stop(save_sram=True)
     return 0

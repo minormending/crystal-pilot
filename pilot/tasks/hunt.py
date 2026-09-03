@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import time
 
-from ..session import PilotTimeout
-from .base import TaskResult
+from .base import TaskLifecycle, TaskResult
 from .search import SearchStats, WildSearch
 
 
-class HuntTask:
+class HuntTask(TaskLifecycle):
     name = "hunt"
 
     def __init__(self, session, reader, control, nav, world, gamedata,
@@ -48,15 +47,12 @@ class HuntTask:
         route = self.gd.map_pretty(*route_key)
         wanted = self._describe_target(want_id, shiny, min_level)
         self.log(f"hunt: looking for {wanted} on {route}")
-        res.backup = self.backups.take(self.s, f"hunt-{self._slug(want_id, shiny)}")
-
         stats = SearchStats()
         t0 = time.monotonic()
         found = None
         blocked = None
-        timed_out = False
 
-        try:
+        with self.budgeted(res, f"hunt-{self._slug(want_id, shiny)}") as run:
             if not self.search.ensure_grass(route_key):
                 res.status = "blocked"
                 res.message = (f"no grass found on {route} -- stand on a route "
@@ -83,52 +79,55 @@ class HuntTask:
                     break
                 self.search.leave(stats)
 
-        except PilotTimeout as e:
-            timed_out = True
-            self.log(f"hunt: {e}")
-            self.s.budget.open_reserve()
+        # Guarded, unlike before: leaving the battle and saving a state below
+        # drive the emulator, so the wrap-up can run out of budget too. It used
+        # to escape run() and reach the caller as an exception where every
+        # other task returns a result.
+        with self.wrapping(res):
+            stats_out = {
+                "encounters": stats.encounters,
+                "fled": stats.fled,
+                "fought": stats.fought,
+                "wall": f"{time.monotonic() - t0:.1f}s",
+            }
 
-        stats_out = {
-            "encounters": stats.encounters,
-            "fled": stats.fled,
-            "fought": stats.fought,
-            "wall": f"{time.monotonic() - t0:.1f}s",
-        }
-
-        if found is not None:
-            tag = "shiny " if found.enemy_shiny else ""
-            res.status = "completed"
-            res.message = (f"found {tag}{found.enemy_name} Lv{found.enemy_level} "
-                           f"on {route} after {stats.encounters} encounter(s)")
-            stats_out["found"] = found.enemy_name
-            stats_out["level"] = found.enemy_level
-            if found.enemy_shiny:
-                stats_out["shiny"] = True
-            if keep_battle:
-                # Leave the battle on screen and save the exact moment, so it can
-                # be picked up in `play` or with `resume`.
-                state = self.backups.dir / f"found-{found.enemy_name}.state"
-                self.s.save_state_to(state)
-                res.note(f"battle left in progress; state saved to {state.name}")
-                res.note("pick it up with `crystal-pilot play` "
-                         "(the battle is still live in the save state)")
+            if found is not None:
+                tag = "shiny " if found.enemy_shiny else ""
+                res.status = "completed"
+                res.message = (f"found {tag}{found.enemy_name} Lv{found.enemy_level} "
+                               f"on {route} after {stats.encounters} encounter(s)")
+                stats_out["found"] = found.enemy_name
+                stats_out["level"] = found.enemy_level
+                if found.enemy_shiny:
+                    stats_out["shiny"] = True
+                if keep_battle:
+                    # Leave the battle on screen and save the exact moment, so it can
+                    # be picked up in `play` or with `resume`.
+                    state = self.backups.dir / f"found-{found.enemy_name}.state"
+                    self.s.save_state_to(state)
+                    res.note(f"battle left in progress; state saved to {state.name}")
+                    res.note("pick it up with `crystal-pilot play` "
+                             "(the battle is still live in the save state)")
+                else:
+                    self.search.leave(stats)
             else:
-                self.search.leave(stats)
-        else:
-            if timed_out:
-                res.status = "timeout"
-                res.message = (f"gave up after {stats.encounters} encounter(s) "
-                               f"without finding {wanted}")
-            elif stats.encounters >= max_encounters:
-                res.status = "blocked"
-                res.message = (f"saw {stats.encounters} encounters on {route} "
-                               f"without finding {wanted}")
-            else:
-                res.status = "blocked"
-                res.message = (f"stopped after {stats.encounters} encounter(s): "
-                               f"{blocked or 'unknown reason'}")
-            res.note(f"seen: {stats.top_seen()}")
-        res.stats = stats_out
+                if run.timed_out:
+                    res.status = "timeout"
+                    res.message = (f"gave up after {stats.encounters} encounter(s) "
+                                   f"without finding {wanted}")
+                elif stats.encounters >= max_encounters:
+                    res.status = "blocked"
+                    res.message = (f"saw {stats.encounters} encounters on {route} "
+                                   f"without finding {wanted}")
+                else:
+                    res.status = "blocked"
+                    res.message = (f"stopped after {stats.encounters} encounter(s): "
+                                   f"{blocked or 'unknown reason'}")
+                res.note(f"seen: {stats.top_seen()}")
+            res.stats = stats_out
+        # Outside the guard: if the wrap-up above times out it is swallowed, and
+        # a return sitting inside the block would fall off the end and hand the
+        # caller None instead of a result.
         return res
 
     # --- helpers -----------------------------------------------------------

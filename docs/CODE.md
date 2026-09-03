@@ -521,7 +521,7 @@ exactly the bug the mobile port shipped and had to fix.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py @ 15849e9edc3d -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py @ 110103344846 -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -598,6 +598,50 @@ anyway, which is also how the round trip gets exercised: verified travelling
 `ROUTE_29 → CHERRYGROVE_POKECENTER_1F (2 hops)` and back. That took 0.1s of wall
 time, which looks impossible until you remember this runs at roughly 28,000 fps
 headless — about 47 seconds of game time.
+
+</details>
+
+### What every task shares
+
+```mermaid
+flowchart TD
+    A["run()"] --> B["budgeted(res, label)<br/>take a backup"]
+    B --> C["the work"]
+    C -- "runs out of budget" --> D["log it, open the reserve,<br/>set run.timed_out"]
+    C --> E["wrapping(res)"]
+    D --> E
+    E --> F["tidy up: leave the battle,<br/>save, build stats"]
+    F -- "runs out of budget again" --> G["note it, keep the answer"]
+    F --> H["return res"]
+    G --> H
+```
+
+Four tasks each took a backup, caught `PilotTimeout` around the work, logged it,
+opened the budget reserve, and then wrapped the *wrap-up* in a second guard —
+because tidying up drives the emulator too and can itself run out of frames.
+`TaskLifecycle` in `tasks/base.py` holds those three pieces; each task keeps its
+own body and its own idea of what "done" means.
+
+<details>
+<summary><b>Advanced detail:</b> the two bugs a rule in four places had</summary>
+
+**`hunt` had no guard on its wrap-up.** Three of the four did. So a timeout
+while hunt put the battle away escaped `run()` entirely: the caller got an
+exception where every other task returns a `TaskResult`, and the CLI printed a
+traceback. That is what a rule kept in four places does — it is right three
+times and nobody notices the fourth.
+
+**And where the `return` sits turns out to matter more than it looks.** The
+wrap-up guard swallows a timeout so a finished job is not lost to a slow tidy-up.
+A `return res` *inside* that block means swallowing falls off the end of the
+function and hands the caller `None` — worse than the exception it replaced,
+because `None` has no status to read. Every `run()` returns at method level, and
+a test asserts it by walking the AST rather than trusting a reading.
+
+**`run.timed_out` replaces a local flag** each task kept by hand. Renaming it
+found the last straggler: three call sites were `if timed_out:`, and grind also
+had `elif timed_out and on_timeout == "revert":`, which a narrower search
+missed.
 
 </details>
 
@@ -726,7 +770,25 @@ Master Ball is never thrown unless you name it.
 
 ## 8. Three ways to drive it
 
-<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 8bdb5df8eedf -->
+`cli.py` is a dispatch table, not a staircase. `main()` parses, checks the ROM
+exists, and looks the command up:
+
+| group | what it gets | commands |
+| --- | --- | --- |
+| `STANDALONE` | just `args`; owns its own session | play, serve, timeline, resume, slots/save/load/undo, backups |
+| `IN_GAME` | `(pilot, args)` with the save already loaded | status, hunt, battle, capture, heal, catch, trainers, grind |
+| neither | a pilot and deliberately *no* loaded game | bootstrap |
+
+It was one 342-line function six deep in `if args.cmd ==`, at 35% coverage in a
+codebase whose median function is eight lines — so nothing about a command's
+argument wiring could be exercised without running the whole CLI, and a typo in
+`args.foo` surfaced when somebody used it. `main()` is 33 lines now and each
+command is its own function.
+
+The test worth having is the dullest: that the table and the parser agree. A
+command added to one and not the other is invisible until you type it.
+
+<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 6ab7c536748d -->
 
 The same tasks, three front ends, one `TaskResult` shape between them.
 

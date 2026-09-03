@@ -6,8 +6,7 @@ import time
 from dataclasses import dataclass
 
 from ..control import FIGHT
-from ..session import PilotTimeout
-from .base import TaskResult
+from .base import TaskLifecycle, TaskResult
 from .search import SearchStats, WildSearch
 
 # Cheapest first, so a routine catch does not burn the good balls. MASTER_BALL
@@ -68,7 +67,7 @@ class Damage:
         self.biggest_hit = max(self.biggest_hit, dealt)
 
 
-class CatchTask:
+class CatchTask(TaskLifecycle):
     name = "catch"
 
     def __init__(self, session, reader, control, nav, world, gamedata,
@@ -122,7 +121,6 @@ class CatchTask:
         if shiny:
             target = f"a shiny {target}" if want_id is not None else "a shiny"
         self.log(f"catch: after {target} on {route}, throwing {ball_name}s")
-        res.backup = self.backups.take(self.s, f"catch-{target.replace(' ', '-')}")
 
         stats = SearchStats()
         thrown = 0
@@ -133,9 +131,8 @@ class CatchTask:
         t0 = time.monotonic()
         caught = None
         blocked = None
-        timed_out = False
 
-        try:
+        with self.budgeted(res, f"catch-{target.replace(' ', '-')}") as run:
             if not self.search.ensure_grass(route_key):
                 res.status = "blocked"
                 res.message = f"no grass found on {route}"
@@ -177,13 +174,8 @@ class CatchTask:
                 if self.r.in_battle():
                     self.search.leave(stats)
 
-        except PilotTimeout as e:
-            timed_out = True
-            self.log(f"catch: {e}")
-            self.s.budget.open_reserve()
-
         # --- wrap up --------------------------------------------------------
-        try:
+        with self.wrapping(res):
             if self.r.in_battle():
                 self.search.leave(stats)
             stats_out = {
@@ -206,7 +198,7 @@ class CatchTask:
                     if not res.saved:
                         res.note("in-game save did not commit; "
                                  "the backup is still intact")
-            elif timed_out:
+            elif run.timed_out:
                 res.status = "timeout"
                 res.message = (f"gave up after {stats.encounters} encounter(s) "
                                f"and {thrown} ball(s)")
@@ -216,8 +208,6 @@ class CatchTask:
                                f"{blocked or 'ran out of encounters or balls'}")
                 res.note(f"seen: {stats.top_seen()}")
             res.stats = stats_out
-        except PilotTimeout:
-            res.note("ran out of budget during cleanup")
         return res
 
     # --- capture -----------------------------------------------------------
