@@ -311,3 +311,111 @@ def mark_saved(sram: bytearray, sym: SymbolTable, present: bool = True) -> bytea
         bank, addr = sym.banked(name)
         sram[bank * 0x2000 + (addr - 0xA000)] = value if present else 0
     return sram
+
+
+# --- a world you can walk around --------------------------------------------
+class FakePyBoy:
+    """The two methods `Navigator.step` reaches through the session for.
+
+    It presses buttons on pyboy directly rather than going through `tap`,
+    because a step is a press held until the player has moved rather than a
+    tap of fixed length. So a fake session that stops at `tap` cannot drive any
+    movement code, which is most of why the navigator's fallbacks had never
+    been tested.
+    """
+
+    def __init__(self, world: "FakeWorld"):
+        self.world = world
+        self.held: str | None = None
+        # Counted separately from FakeSession.presses, which only sees `tap`.
+        # A test that measured movement by that count was measuring nothing:
+        # every step goes through button_press instead.
+        self.pushes: list[str] = []
+
+    def button_press(self, direction: str) -> None:
+        self.held = direction
+        self.pushes.append(direction)
+
+    def button_release(self, direction: str) -> None:
+        self.held = None
+
+
+DELTAS = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
+
+
+class FakeWorld:
+    """A small walkable grid, wired into a session's work RAM.
+
+    Enough to drive the navigator: walls that block, grass that starts nothing
+    but reads as an encounter tile, and edges that hand you to another map. The
+    player moves one tile per press, which is what `step` is written against.
+
+    Deliberately not a map format. The fallbacks under test are the ones that
+    run *without* collision data -- they feel their way by bumping into things
+    -- so what they need is something to bump into.
+    """
+
+    def __init__(self, sym, *, walls=(), grass=(), pos=(5, 5), map_key=(24, 3),
+                 edges=None, width=12, height=12, battle_at=None):
+        self.sym = sym
+        self.walls = set(walls)
+        self.grass = set(grass)
+        self.pos = tuple(pos)
+        self.map_key = tuple(map_key)
+        self.edges = dict(edges or {})
+        self.width, self.height = width, height
+        self.battle_at = set(battle_at or ())
+        self.in_battle = False
+        self.steps = 0
+        self.session = FakeSession(sym, self._wram())
+        self.session.pyboy = FakePyBoy(self)
+        self.session.on_tick = self._on_tick
+
+    # --- the grid ---------------------------------------------------------
+    def walkable(self, x: int, y: int) -> bool:
+        return (x, y) not in self.walls
+
+    def _wram(self) -> bytearray:
+        on_grass = self.pos in self.grass
+        return world(
+            self.sym,
+            party=[{"species": 155, "level": 5, "hp": 20, "max_hp": 20,
+                    "moves": [33, 0, 0, 0], "pp": [35, 0, 0, 0]}],
+            battle_mode=1 if self.in_battle else 0,
+            map=self.map_key, pos=self.pos,
+            # 0x14 is long grass; anything else reads as not an encounter tile.
+            tile=0x14 if on_grass else 0x01,
+            enemy={"species": 16, "level": 3, "hp": 15, "max_hp": 15}
+            if self.in_battle else None,
+            active={"hp": 20, "max_hp": 20} if self.in_battle else None,
+        )
+
+    def _sync(self) -> None:
+        self.session.wram = self._wram()
+
+    def _on_tick(self, frames, session) -> None:
+        held = session.pyboy.held
+        if held is None or self.in_battle:
+            return
+        dx, dy = DELTAS[held]
+        nx, ny = self.pos[0] + dx, self.pos[1] + dy
+
+        # Off the edge: hand over to the adjoining map if there is one.
+        off = not (0 <= nx < self.width and 0 <= ny < self.height)
+        if off:
+            if held in self.edges:
+                self.map_key = self.edges[held]
+                self.pos = (self.width // 2, self.height // 2)
+                session.pyboy.held = None
+                self._sync()
+            return
+
+        if not self.walkable(nx, ny):
+            return                          # a wall: the press achieves nothing
+        self.pos = (nx, ny)
+        self.steps += 1
+        if self.pos in self.battle_at:
+            self.in_battle = True
+        # One press, one tile: `step` releases the button once it sees movement.
+        session.pyboy.held = None
+        self._sync()

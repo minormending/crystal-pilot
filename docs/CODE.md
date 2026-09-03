@@ -519,6 +519,43 @@ exactly the bug the mobile port shipped and had to fix.
 
 ---
 
+<details>
+<summary><b>Advanced detail:</b> the fallbacks, and why they were the least
+tested code here</summary>
+
+`walk_to`, `cross_edge` and `find_grass` each have two implementations: a
+planned one over a calibrated collision map, and a fallback that feels its way
+by bumping into things. The fallbacks run when the collision decode is missing
+or a route could not be planned — which is to say, when something has already
+gone wrong.
+
+They were the least-covered lines in the project: `_cross_edge_explore` had 32
+of its 35 lines never executed, `_find_grass_sweep` 23 of 26, `_walk_to_greedy`
+26 of 38. The code that handles trouble was the code least likely to work.
+
+They need no ROM, which is the part that had been missed. They navigate by
+bumping, so what they need is something to bump into — `tests/fake.py`'s
+`FakeWorld` is a small walkable grid wired into a session's work RAM, with walls
+that block, grass that reads as an encounter tile, and edges that hand you to
+another map. The player moves one tile per press, which is what `step` is
+written against.
+
+**`_walk_to_greedy` cannot route around a wall on a straight approach**, and
+that is now pinned by a test rather than left to be discovered. It only ever
+tries the two axes that reduce the error, so with the goal directly left and a
+wall directly left there is no perpendicular to fall back on: it bumps three
+times and gives up. That is what it promises — "enough for the short,
+mostly-open hops the pilot needs" — but "sidestepping obstacles" in the
+docstring reads like more than it is.
+
+`step` reaches through the session to `pyboy.button_press` rather than going
+through `tap`, because a step is a press held until the player has moved, not a
+tap of fixed length. That is why a fake that stops at `tap` cannot drive any
+movement code, and it caught out the first version of these tests: an assertion
+counting `session.presses` was measuring a list that movement never touches.
+
+</details>
+
 ## 7. The tasks
 
 <!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py @ 110103344846 -->
