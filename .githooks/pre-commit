@@ -9,6 +9,16 @@
 staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$|^run-tests$')
 [ -z "$staged" ] && exit 0
 
+# Lint first: it is instant, and it is the check most likely to catch a slip
+# that would otherwise be found by a reader.
+if command -v ruff >/dev/null 2>&1 && ! ruff check pilot tests >/dev/null 2>&1; then
+  echo
+  echo "  ---"
+  echo "  ruff has something to say. Run: ruff check pilot tests"
+  echo "  To commit anyway:  git commit --no-verify"
+  exit 1
+fi
+
 # Check the staged content, not the working tree: those can differ, and the
 # commit is what will be recorded.
 tmp=$(mktemp -d) || exit 0

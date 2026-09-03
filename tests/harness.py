@@ -280,7 +280,7 @@ def run(pattern: str | None = None, verbose: bool = False) -> int:
 
     selected = _REGISTRY
     if pattern:
-        rx = re.compile(pattern, re.I)
+        rx = re.compile(pattern, re.IGNORECASE)
         selected = [t for t in _REGISTRY if rx.search(t[0]) or rx.search(t[1])]
     if not selected:
         print(f"no tests match {pattern!r}")

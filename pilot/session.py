@@ -13,6 +13,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from pyboy import PyBoy
 
@@ -174,7 +175,7 @@ class Session:
     def rendering(self) -> bool:
         return self._render
 
-    def set_budget(self, budget: "Budget") -> None:
+    def set_budget(self, budget: Budget) -> None:
         """Swap in a fresh budget (each dispatched task gets its own)."""
         self.budget = budget
 
@@ -317,7 +318,7 @@ class Session:
             addr = where
             bank = self.DEFAULT_WRAM_BANK
         if addr in self.WRAM_SWITCHABLE:
-            return (bank if bank else self.DEFAULT_WRAM_BANK), addr
+            return (bank or self.DEFAULT_WRAM_BANK), addr
         return None, addr
 
     def _read(self, where: str | int) -> int:
@@ -417,7 +418,9 @@ class Session:
     # Probing for readable banks over-reports (PyBoy does not bounds-check), and
     # writing the wrong size produces a .sav other emulators reject -- Crystal
     # declares 0x03, i.e. exactly 32 KiB.
-    RAM_SIZE_BANKS = {0x00: 0, 0x01: 1, 0x02: 1, 0x03: 4, 0x04: 16, 0x05: 8}
+    RAM_SIZE_BANKS: ClassVar[dict[int, int]] = {
+        0x00: 0, 0x01: 1, 0x02: 1, 0x03: 4, 0x04: 16, 0x05: 8,
+    }
 
     def _sram_banks(self) -> int:
         code = self.pyboy.memory[0x0149]
@@ -451,6 +454,6 @@ class Session:
         if save_sram:
             try:
                 self.flush_sram()
-            except Exception as e:   # never let teardown mask a task result
+            except Exception as e:  # noqa: BLE001 -- teardown must never mask a task result
                 print(f"warning: could not write {self._sav_path}: {e}")
         self.pyboy.stop(save=False)

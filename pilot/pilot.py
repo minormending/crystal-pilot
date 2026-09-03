@@ -10,16 +10,16 @@ from .control import Control
 from .gamedata import GameData
 from .nav import Navigator
 from .recorder import Recorder
-from .timeline import CheckpointWriter, Timeline
 from .session import Budget, Session
 from .slots import UNDO_SLOT, Slots, describer
 from .state import GameStateReader
 from .tasks.bootstrap import Bootstrap
-from .tasks.grind import GrindTask
 from .tasks.catch import CatchTask
-from .tasks.moment import CaptureTask, FightTask, HealTask
+from .tasks.grind import GrindTask
 from .tasks.hunt import HuntTask
+from .tasks.moment import CaptureTask, FightTask, HealTask
 from .tasks.trainers import TrainerSweepTask
+from .timeline import CheckpointWriter, Timeline
 from .travel import Traveler
 from .world import World
 
@@ -129,7 +129,7 @@ class Pilot:
                 return (f"{where}  |  {m.species_name} Lv{m.level} "
                         f"{m.hp}/{m.max_hp}HP")
             return where
-        except Exception:
+        except Exception:  # noqa: BLE001 -- a caption is decoration; no caption beats no run
             return ""
 
     def start_recording(self, path, speed: float = 30.0, fps: int = 30,
@@ -159,7 +159,7 @@ class Pilot:
             # so it must not be counted here or almost every point would be
             # marked unsavable.
             savable = not r.in_battle()
-        except Exception:
+        except Exception:  # noqa: BLE001,S110 -- the checkpoint is worth more than its label
             pass
         return {"text": self.caption(), "level": level, "savable": savable}
 

@@ -38,6 +38,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Lint
+        # The rule set and every suppression are in ruff.toml, with reasons.
+        # Before this, eight `# noqa: BLE001` comments were addressed to a
+        # linter that had never been configured -- and seven other blind
+        # excepts in the same files carried no comment at all.
+        run: ruff check pilot tests
+
       - name: Run the data tests
         env:
           POKECRYSTAL_DIR: /home/runner/pokecrystal

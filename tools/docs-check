@@ -29,6 +29,16 @@ MARKER = re.compile(
     r"<!--\s*covers(?P<kind>|-api):\s*(?P<files>[^@]+?)"
     r"\s*@\s*(?P<hash>[0-9a-f]{12}|NEW)\s*-->"
 )
+# Anything that looks like it meant to be a marker. A marker without its
+# `@ hash` does not match MARKER at all, so the section it was meant to opt in
+# is silently left out -- the tool then reports every tracked section current
+# while quietly tracking one fewer. That is the failure mode this whole file
+# exists to prevent, so it is worth catching in the file itself. Use `@ NEW`
+# when adding one by hand.
+LOOSE_MARKER = re.compile(r"<!--\s*covers(?:|-api):")
+# Filled in by scan(); read by main().
+MALFORMED: list = []
+
 # Lines that make up a module's surface, for `covers-api`. Python rather than
 # JavaScript: imports plus top-level and method definitions.
 SURFACE = re.compile(r"^\s*(import|from|def|async def|class)\b")
@@ -89,6 +99,8 @@ def scan():
                 continue
             m = MARKER.search(line)
             if not m:
+                if LOOSE_MARKER.search(line):
+                    MALFORMED.append((doc, n + 1, line.strip()))
                 continue
             files = m.group("files").split()
             missing = [f for f in files if not (ROOT / f).exists()]
@@ -112,6 +124,14 @@ def main(argv):
         only = [a for a in argv[argv.index("--only") + 1:] if not a.startswith("-")]
 
     records = list(scan())
+    if MALFORMED:
+        for doc, line_no, text in MALFORMED:
+            print(f"docs-check: {doc.name}:{line_no} looks like a marker but does "
+                  f"not parse, so its section is not tracked:")
+            print(f"    {text}")
+        print("\n  A marker needs its hash. Write `@ NEW` and run "
+              "`tools/docs-check --update`.")
+        return 1
     if not records:
         print("docs-check: no 'covers:' markers found — nothing is tracked yet.")
         return 0

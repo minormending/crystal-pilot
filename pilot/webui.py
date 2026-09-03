@@ -15,8 +15,8 @@ hardened service -- do not expose it to the internet.
 """
 from __future__ import annotations
 
-import json
 import io
+import json
 import queue
 import secrets
 import socket
@@ -191,7 +191,7 @@ class WebPilot:
         self.log(line)
         try:
             sys.stdout.flush()
-        except Exception:
+        except Exception:  # noqa: BLE001,S110 -- flushing is best-effort; the line is logged already
             pass
 
     def stop(self) -> None:
@@ -561,7 +561,12 @@ class WebPilot:
                 "balls": balls,
                 "frame": self.p.session.frame,
             }
-        except Exception:
+        except Exception as e:  # noqa: BLE001 -- a bad poll must not kill the poller
+            # Said out loud rather than swallowed. Returning silently left
+            # the page showing the last good numbers with nothing to say
+            # they were old -- which is the failure this project keeps
+            # finding: something reporting success while doing nothing.
+            self.log(f"status refresh failed: {type(e).__name__}: {e}")
             return
         with self._lock:
             for key, value in info.items():
@@ -575,7 +580,7 @@ class WebPilot:
             buf = io.BytesIO()
             img.convert("RGB").save(buf, format="PNG")
             data = buf.getvalue()
-        except Exception:
+        except Exception:  # noqa: BLE001 -- a frame that will not encode is skipped, not fatal
             return
         with self._lock:
             self._png = data
@@ -613,7 +618,7 @@ def qr_lines(url: str) -> list[str]:
         buf = _io.StringIO()
         qr.print_ascii(out=buf, invert=True)
         return buf.getvalue().splitlines()
-    except Exception:
+    except Exception:  # noqa: BLE001 -- the QR code is a convenience; the URL is printed anyway
         return []
 
 
@@ -625,7 +630,7 @@ def local_ip() -> str:
         ip = s.getsockname()[0]
         s.close()
         return ip
-    except Exception:
+    except Exception:  # noqa: BLE001 -- no route out means localhost, which is the useful default
         return "127.0.0.1"
 
 

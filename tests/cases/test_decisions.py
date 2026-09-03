@@ -6,8 +6,8 @@ data files. The decisions are the part that has actually been wrong.
 
 The fakes are in tests/fake.py; the code under test is the real thing.
 """
-from pilot.state import GameStateReader
 from pilot.slots import SlotInfo, Slots
+from pilot.state import GameStateReader
 from pilot.tasks.catch import UNGENTLE_EFFECTS, Damage
 
 from ..fake import FakeSession, fake_symbols, mark_saved, world

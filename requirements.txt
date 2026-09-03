@@ -4,3 +4,4 @@ Pillow
 # Optional: prints the connection URL as a scannable QR code in the terminal.
 # Everything works without it; you just have to type the URL.
 qrcode
+ruff

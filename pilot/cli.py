@@ -220,8 +220,8 @@ def build_parser() -> argparse.ArgumentParser:
     ql = sub.add_parser("load", help="load a slot back")
     ql.add_argument("--slot", default="1", help="1, 2 or 3 (default 1)")
 
-    ud = sub.add_parser("undo",
-                        help="put the game back to just before the last job")
+    sub.add_parser("undo",
+                   help="put the game back to just before the last job")
 
     bk = sub.add_parser("backups", help="list or restore save backups")
     bk.add_argument("action", choices=("list", "restore"))
@@ -395,7 +395,7 @@ def cmd_resume(args) -> int:
 def cmd_slots(args) -> int:
     pilot = make_pilot(args)
     try:
-        from .slots import ALL_SLOTS, UNDO_SLOT, describer
+        from .slots import UNDO_SLOT, describer
         if args.cmd == "slots":
             if args.clear:
                 try:

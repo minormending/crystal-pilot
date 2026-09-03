@@ -324,7 +324,7 @@ class FakePyBoy:
     been tested.
     """
 
-    def __init__(self, world: "FakeWorld"):
+    def __init__(self, world: FakeWorld):
         self.world = world
         self.held: str | None = None
         # Counted separately from FakeSession.presses, which only sees `tap`.

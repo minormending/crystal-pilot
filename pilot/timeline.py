@@ -35,7 +35,7 @@ class Checkpoint:
     savable: bool = True
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Checkpoint":
+    def from_dict(cls, d: dict) -> Checkpoint:
         return cls(
             index=d["index"], frame=d["frame"], game_seconds=d["game_seconds"],
             video_seconds=d.get("video_seconds"), file=d["file"],
@@ -110,7 +110,7 @@ class CheckpointWriter:
         if self.summary_fn is not None:
             try:
                 info = self.summary_fn() or {}
-            except Exception:
+            except Exception:  # noqa: BLE001 -- a summary failure must not lose the checkpoint
                 info = {}
         self.checkpoints.append(Checkpoint(
             index=i, frame=frame_index, game_seconds=frame_index / 60.0,
@@ -190,7 +190,7 @@ class Timeline:
             return self.checkpoints[-1]
         if s.startswith("#"):
             return self._by_index(s[1:])
-        if s.startswith("level:") or s.startswith("lv"):
+        if s.startswith(("level:", "lv")):
             want = int(re.sub(r"[^0-9]", "", s))
             reached = [c for c in self.checkpoints
                        if c.level is not None and c.level >= want]

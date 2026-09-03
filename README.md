@@ -574,7 +574,7 @@ slot is one step backwards that the next job overwrites.
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-84 tests. Most of them exist because of a specific bug that shipped and was
+153 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -602,7 +602,7 @@ drive a real emulator skip themselves. The runner says so rather than reporting
 a bare pass:
 
 ```
-59 passed, 86 skipped, 0 failed  (0.1s)
+67 passed, 86 skipped, 0 failed  (0.2s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
   (86 tests need a ROM built from the disassembly)
 ```

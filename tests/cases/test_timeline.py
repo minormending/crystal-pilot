@@ -26,6 +26,7 @@ def _timeline(tmp):
 def _(t):
     import tempfile
     from pathlib import Path
+
     from pilot.timeline import Timeline
     with tempfile.TemporaryDirectory() as tmp:
         tl = Timeline(_timeline(Path(tmp)))
@@ -44,6 +45,7 @@ def _(t):
 def _(t):
     import tempfile
     from pathlib import Path
+
     from pilot.timeline import Timeline
     with tempfile.TemporaryDirectory() as tmp:
         tl = Timeline(_timeline(Path(tmp)))
@@ -56,6 +58,7 @@ def _(t):
 def _(t):
     import tempfile
     from pathlib import Path
+
     from pilot.timeline import Timeline
     with tempfile.TemporaryDirectory() as tmp:
         tl = Timeline(_timeline(Path(tmp)))

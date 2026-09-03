@@ -65,7 +65,7 @@ class Overlay:
         if pm is not None:
             try:
                 pm.post_tick()
-            except Exception:
+            except Exception:  # noqa: BLE001,S110 -- a plugin's tick must not take the emulator down
                 pass
 
     # --- pieces ------------------------------------------------------------

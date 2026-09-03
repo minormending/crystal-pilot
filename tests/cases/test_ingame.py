@@ -4,8 +4,14 @@ There is no window and nobody pressing keys here, so the menu takes its input
 from a canned sequence. What is being checked is that the choices on screen turn
 into the task the player actually asked for.
 """
-from pilot.ingame import (KEY_CLOSE, KEY_CONFIRM, KEY_DOWN, KEY_UP,
-                          InGameMenu, ScriptedKeys)
+from pilot.ingame import (
+    KEY_CLOSE,
+    KEY_CONFIRM,
+    KEY_DOWN,
+    KEY_UP,
+    InGameMenu,
+    ScriptedKeys,
+)
 
 from ..harness import test
 

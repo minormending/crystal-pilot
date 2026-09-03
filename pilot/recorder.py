@@ -163,7 +163,7 @@ class Recorder:
         if self.caption_fn is not None:
             try:
                 text = self.caption_fn() or ""
-            except Exception:
+            except Exception:  # noqa: BLE001 -- a caption failure must not stop the recording
                 text = ""
         key = f"{self.title}\n{text}"
         # The caption changes rarely (a level-up, a new battle), so rendering it

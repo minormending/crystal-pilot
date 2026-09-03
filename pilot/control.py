@@ -7,7 +7,7 @@ cursor happened to be left by a previous battle.
 """
 from __future__ import annotations
 
-from .symbols import NAME_MENU_ITEMS, NAME_MENU_RIGHT, NAME_MENU_FIRST_PRESET
+from .symbols import NAME_MENU_FIRST_PRESET, NAME_MENU_ITEMS, NAME_MENU_RIGHT
 
 TEXT_EVENTS = ("text_prompt", "text_wait", "text_aorb")
 

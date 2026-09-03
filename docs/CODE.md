@@ -101,7 +101,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 477424936f1f -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ eb6256d31bd1 -->
 
 Roughly 7,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -186,7 +186,7 @@ whoever asked.
 
 ### `session.py` — PyBoy, hooks, and the input model
 
-<!-- covers: pilot/session.py @ 2f3acb4e9680 -->
+<!-- covers: pilot/session.py @ 1d2afa8f68bd -->
 
 Owns the emulator. Runs frames, reads memory, registers the hooks, and holds the
 queue of events they produce.
@@ -262,7 +262,7 @@ parameter exists.
 
 ### `collision.py` — what you can walk on
 
-<!-- covers: pilot/collision.py @ 214cdd8808a5 -->
+<!-- covers: pilot/collision.py @ fe67ddffd323 -->
 
 Decodes the loaded map into "can I stand on this tile", and does breadth-first
 pathfinding over it — so movement is planned rather than discovered by bumping
@@ -303,7 +303,7 @@ used one could not be walked back.
 
 ## 4. Hooks: the game asks, we answer
 
-<!-- covers: pilot/symbols.py pilot/session.py @ b9f91fc0b657 -->
+<!-- covers: pilot/symbols.py pilot/session.py @ 5b73c542cbf8 -->
 
 This is the spine of the whole design. Instead of polling memory to guess what
 the game wants, the pilot sets a callback on the ROM routine that *is* the
@@ -370,7 +370,7 @@ usually the one that mattered.
 
 ## 5. Battles
 
-<!-- covers: pilot/battle.py pilot/control.py @ d9256a7f9d29 -->
+<!-- covers: pilot/battle.py pilot/control.py @ 09b2d3a765db -->
 
 One engine, driven by a policy. A grind wants to win, a hunt wants to leave, a
 catch wants to weaken and stop — all three are the same loop with different
@@ -558,7 +558,7 @@ counting `session.presses` was measuring a list that movement never touches.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py @ 110103344846 -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py @ 68a27886f669 -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -825,7 +825,14 @@ command is its own function.
 The test worth having is the dullest: that the table and the parser agree. A
 command added to one and not the other is invisible until you type it.
 
-<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 6ab7c536748d -->
+`pilot/web/index.html` is checked too, which it was not: every element the
+script looks up must exist in the markup, every `api/…` the page calls must be
+one `webui.py` serves, tags and CSS braces must balance, and the palette must
+meet contrast at the bar for what each colour actually is. The endpoint check is
+the one that earns its place — a renamed route leaves the button on screen, the
+fetch 404s, and the only sign is in a console nobody has open on a phone.
+
+<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 1b55b1b95f9b -->
 
 The same tasks, three front ends, one `TaskResult` shape between them.
 
@@ -916,7 +923,7 @@ the next in-game save would be layered onto a different game's save file.
 
 ## 9. Recording, checkpoints and backups
 
-<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ a034328634bd -->
+<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 1414a09a9c56 -->
 
 Three different things, easily confused.
 
@@ -978,7 +985,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/selfcheck.py @ ca6f86f812fc -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ 3f7e7130a339 -->
 
 ```bash
 ./run-tests                      # everything
@@ -987,8 +994,20 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-84 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+153 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
+
+**67 of them need nothing but the repository**, which is what CI has: the
+disassembly is cloned but no ROM is built, because building one needs rgbds and
+no ROM is distributed. `tests/fake.py` is why that number is not 20 — a
+stand-in session over a work-RAM buffer, with scripted button responses and a
+small walkable grid, on the observation that the bugs this pilot has shipped
+were decisions about a game state rather than anything needing a cartridge. The
+real readers, the real symbol-table parser, the real capture logic and the
+navigator's fallbacks all run against it.
+
+The other 86 are genuine integration tests — walking, the intro, crossing maps,
+a real save — and skip themselves without a ROM rather than failing.
 
 <details>
 <summary><b>Advanced detail:</b> fixtures, and two ways a test can lie</summary>

@@ -4,10 +4,20 @@ The HTTP layer is deliberately thin -- it reads a published snapshot and pushes
 commands onto a queue -- so the parts worth testing are request validation and
 the token check, both of which run without a socket.
 """
-from pilot.webui import (MAX_PRESS_FRAMES, MENU_FIRST_ROW, MENU_ROW_STRIDE,
-                         PLAYER_TILE_X, PLAYER_TILE_Y, SCREEN_TILES_X,
-                         SCREEN_TILES_Y, TAP_FRAMES, TEXT_ROWS, WALK_FRAMES,
-                         WebPilot, make_handler)
+from pilot.webui import (
+    MAX_PRESS_FRAMES,
+    MENU_FIRST_ROW,
+    MENU_ROW_STRIDE,
+    PLAYER_TILE_X,
+    PLAYER_TILE_Y,
+    SCREEN_TILES_X,
+    SCREEN_TILES_Y,
+    TAP_FRAMES,
+    TEXT_ROWS,
+    WALK_FRAMES,
+    WebPilot,
+    make_handler,
+)
 
 from ..harness import test
 
@@ -380,7 +390,8 @@ def _(t):
 def _(t):
     """The pilot is unthrottled so tasks finish in seconds, but the idle loop is
     what someone is watching: left at full speed it ran the world at 127x."""
-    import threading, time
+    import threading
+    import time
     # run() writes the .sav when it stops, so this runs against a private copy
     # of the ROM. Pointed at the shared one it left a save behind that every
     # later test then booted from.

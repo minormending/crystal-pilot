@@ -6,7 +6,6 @@ whose emulator will not put a machine state back and so keeps battery saves
 instead. If a load here silently returned you to a save point, the desktop would
 have quietly become the mobile behaviour and nothing would have said so.
 """
-from pathlib import Path
 
 from pilot.slots import ALL_SLOTS, UNDO_SLOT, Slots, describer
 

@@ -155,7 +155,7 @@ class InteractiveSession:
                 self._grind(parts[1:])
             else:
                 print(f"unknown command {verb!r}; type help")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- a REPL reports a bad command rather than exiting
             print(f"command failed: {type(e).__name__}: {e}")
 
     def _grind(self, args: list[str]) -> None:

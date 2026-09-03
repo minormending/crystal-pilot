@@ -6,7 +6,6 @@ something *close* to the saved bytes is worse than it failing outright -- you
 only find out by comparing hashes, and nobody compares hashes.
 """
 import hashlib
-import shutil
 import time
 from pathlib import Path
 

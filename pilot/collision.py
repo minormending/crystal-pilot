@@ -100,7 +100,7 @@ class CollisionMap:
                     self._off = off
                     self._calibrated = True
                     return True
-            except Exception:
+            except Exception:  # noqa: BLE001,S112 -- a wrong offset can read out of bounds; that is what the loop is for
                 continue
         return False
 
@@ -113,7 +113,7 @@ class CollisionMap:
         loc = self.r.location()
         try:
             return self.collision_at(loc.x, loc.y) == self.r.tile_collision()
-        except Exception:
+        except Exception:  # noqa: BLE001 -- an unmapped read means uncalibrated, not a crash
             return False
 
     # --- classification ----------------------------------------------------
@@ -180,7 +180,8 @@ class CollisionMap:
         else:
             targets = set(goal) if not (isinstance(goal, tuple) and len(goal) == 2
                                         and isinstance(goal[0], int)) else {tuple(goal)}
-            is_goal = lambda p: p in targets
+            def is_goal(p):
+                return p in targets
 
         if is_goal(start):
             return []

@@ -1,0 +1,58 @@
+# Lint configuration.
+#
+# This exists because eight `# noqa: BLE001` comments did not. They were
+# addressed to a linter that had never been configured or run, which reads as
+# rigour and is not: nothing checked them, and seven other blind excepts in the
+# same codebase carried no comment at all.
+#
+# So the rules below are the ones worth being told about, and every suppression
+# now suppresses something real.
+line-length = 88
+target-version = "py311"
+
+[lint]
+select = [
+    "E", "W",      # pycodestyle: layout mistakes that make a diff harder to read
+    "F",           # pyflakes: dead imports, unused names, genuine errors
+    "I",           # import order, so a new import does not land anywhere
+    "UP",          # outdated idioms for the Python this targets
+    "BLE",         # blind excepts -- the rule the old noqa comments meant
+    # Only the simplifications that genuinely read better. SIM102, SIM103 and
+    # SIM105 are declined on purpose, with reasons, below.
+    "SIM101", "SIM110", "SIM118", "SIM201", "SIM202", "SIM208", "SIM222",
+    "PIE", "FURB", # small correctness-adjacent tidies
+    "S110", "S112",# a silently swallowed exception, which this project has form for
+    "RUF012",      # a mutable class default, which is a shared-state bug waiting
+]
+ignore = [
+    # Declined on purpose, not overlooked.
+
+    # SIM103 wants a guard-clause chain to end in `return not (...)`. Each of
+    # these is a list of separate reasons to reject, read top to bottom, and
+    # collapsing only the last makes it look unlike its siblings for no gain.
+    "SIM103",
+
+    # SIM102 wants nested ifs merged. Where it fires here the two conditions
+    # mean different things -- "is this a wild battle" and "is the lead hurt
+    # enough to run" -- and `and`-ing them buries that.
+    "SIM102",
+
+    # SIM105 wants contextlib.suppress instead of try/except/pass. That hides
+    # the except line, which is exactly where this codebase writes the reason
+    # for the catch.
+    "SIM105",
+
+    # `for _key, value in ...`. Forty of these, every one a deliberate unpack
+    # where one half is not wanted; renaming them all serves no reader.
+    "RUF059",
+
+    # Long lines are worth flagging; long *strings* are not, and most of the
+    # offenders are the pilot's own messages, which read better whole.
+    "E501",
+]
+
+[lint.per-file-ignores]
+# The tests construct odd situations on purpose, and the runner has to catch
+# whatever a test throws -- that is its job, not a blind except to justify.
+# A lambda or a mutable default in a test is local to that test.
+"tests/**" = ["S110", "BLE001", "E731", "RUF012"]

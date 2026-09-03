@@ -161,10 +161,7 @@ class GameSaver:
         # The last three START-menu entries are always SAVE, OPTION, EXIT, so
         # SAVE is count-2 regardless of whether the POKeDEX entry exists yet.
         order = [count - 2] + [i for i in range(1, count + 1) if i != count - 2]
-        for row in order:
-            if self._try_row(row, count):
-                return True
-        return False
+        return any(self._try_row(row, count) for row in order)
 
     def _try_row(self, row: int, count: int) -> bool:
         if not self._menu_is_open():

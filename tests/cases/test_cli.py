@@ -90,7 +90,8 @@ def _(t):
 def _(t):
     # Cheap, and it catches an argparse mistake in a command nobody has run:
     # a bad `choices`, a duplicate option string, a bad default.
-    import contextlib, io
+    import contextlib
+    import io
     for name in subcommands():
         buf = io.StringIO()
         try:
