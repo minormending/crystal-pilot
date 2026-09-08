@@ -233,6 +233,31 @@ class Ctx(Check):
                 p.session.wb(base + i * 2 + 1, qty)
             p.session.wb(base + len(entries) * 2, 0xFF)
 
+    def paint_screen(self, p, lines) -> None:
+        """Test-only: write text into wTilemap, through the reader's own charmap.
+
+        Deliberately the *same* table the reader reads, inverted. A test that
+        painted through a second copy of the charmap would pass against a copy
+        of any mistake in it -- so a wrong entry has to be wrong in both
+        directions here, which means the live-screen tests are the ones holding
+        the table honest and these are holding the *logic* honest.
+
+        `lines` is a sequence of strings, painted from row 0. Anything the
+        charmap cannot draw is left as the space tile.
+        """
+        from pilot import screen as SC
+        table = SC.charmap(str(self.source))
+        back = {}
+        for tile, glyph in table.items():
+            back.setdefault(glyph, tile)
+        blank = back.get(" ", 0x7F)
+        base = p.session.sym.addr("wTilemap")
+        for i in range(SC.SCREEN_AREA):
+            p.session.wb(base + i, blank)
+        for y, text in enumerate(lines[:SC.SCREEN_H]):
+            for x, ch in enumerate(text[:SC.SCREEN_W]):
+                p.session.wb(base + y * SC.SCREEN_W + x, back.get(ch, blank))
+
     def into_wild_battle(self, p, tries: int = 3):
         """Test-only: walk the grass until a wild battle is under way.
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import items as I
+from . import screen
 from . import symbols as S
 from .gamedata import GameData
 from .session import Session
@@ -255,6 +256,17 @@ class GameStateReader:
         if which not in I.POCKET_SYMBOLS:
             return 0
         return next((q for i, q in self.pocket(which) if i == iid), 0)
+
+    # --- what the screen is saying -----------------------------------------
+    def screen(self):
+        """The words currently drawn, or None on a build that cannot be read.
+
+        A fresh read every time rather than something cached, and that is the
+        point: this gets asked when something has gone wrong, and the question
+        is *what is on the screen at this moment*. A value taken before the
+        press cannot answer it.
+        """
+        return screen.read(self.s, self.gd.root_str)
 
     # --- event flags -------------------------------------------------------
     def event_done(self, name: str) -> bool | None:

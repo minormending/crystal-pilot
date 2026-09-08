@@ -39,6 +39,7 @@ Where the two differ, the difference is almost always [section 4](#4-hooks-the-g
 4. [Hooks: the game asks, we answer](#4-hooks-the-game-asks-we-answer)
 5. [Battles](#5-battles)
    · [The bag](#5a-the-bag)
+   · [The words on the screen](#5b-the-words-on-the-screen)
 6. [Moving around](#6-moving-around)
 7. [The tasks](#7-the-tasks)
    · [Where to go instead](#7b-where-to-go-instead)
@@ -104,7 +105,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 5c721b9877ce -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ e0d77f29e3c9 -->
 
 Roughly 10,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -164,6 +165,7 @@ flowchart TD
 | `travel.py` | "get to Cherrygrove and heal, then come back", "go and buy five balls" |
 | `advice.py` | "this grind is slow — then where should I go?" |
 | `control.py` | "answer this text box / pick this menu entry / use this item / is the overworld even listening?" |
+| `screen.py` | "what does the screen actually say right now?" |
 | `battle.py` | "play out this battle under this policy" |
 | `tasks/` | "grind to 12", "catch a Sentret", "sweep this route", "buy potions" |
 | `pilot.py` | assembles all of it and exposes the tasks |
@@ -297,11 +299,16 @@ where it started.
 
 ### `state.py` — what the game is doing right now
 
-<!-- covers: pilot/state.py @ 31084d900d4c -->
+<!-- covers: pilot/state.py @ bfd255e5ba73 -->
 
 Typed reads: location, party, the battle, both readable bag pockets, the wallet,
 and the game's event flags. Every read goes through a symbol, so nothing here
 contains a bare address.
+
+`screen()` is the door onto `screen.py`, and it takes a *fresh* read every
+time rather than caching one. That is the point: it gets asked when something
+has gone wrong, and the question is what is on the screen at this moment, which
+a value taken before the press cannot answer.
 
 There is **one pocket reader**, not one per pocket: every pocket has the same
 shape, a count of *kinds* followed by (item, quantity) pairs. `balls()` and
@@ -592,7 +599,7 @@ usually the one that mattered.
 
 ## 5. Battles
 
-<!-- covers: pilot/battle.py pilot/control.py @ c464f8749a96 -->
+<!-- covers: pilot/battle.py pilot/control.py @ 774c44f69e08 -->
 
 One engine, driven by a policy. A grind wants to win, a hunt wants to leave, a
 catch wants to weaken and stop — all three are the same loop with different
@@ -743,7 +750,7 @@ listed in the README's limits for that reason.
 
 ## 5a. The bag
 
-<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 80313c297561 -->
+<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 0c5bad4aadb8 -->
 
 The pilot could throw a ball and do nothing else with the pack. Using an item on
 a party member is the thing everything else here depends on: healing without a
@@ -857,9 +864,104 @@ that stops matching is invisible*, above.
 
 ---
 
+## 5b. The words on the screen
+
+<!-- covers: pilot/screen.py pilot/control.py @ 562543c76eb1 -->
+
+Gen 2 draws text as tiles, so `wTilemap` — twenty by eighteen bytes of tile ids
+— holds the sentences a person is reading. They have been sitting in work RAM
+the whole time, and this pilot drove the game's boxes by their *shape* without
+ever looking at them.
+
+Shape got a long way and that is as far as shape goes. Three of the boxes in
+`symbols.py` share `(2, 7)` and two share `(None, 0)`; the START menu grows, so
+PACK sits at a different row depending on how far the game has got; and one box
+had to be matched on half its shape because its row count is not a fact about
+it. The screen answers all three **by name**.
+
+```mermaid
+flowchart LR
+    TM["wTilemap<br/>20 x 18 tile ids"] --> CM{"charmap.asm<br/>tile → character"}
+    CM -->|"at or above $7f"| TXT["18 rows of words"]
+    CM -->|"below $7f"| SP["a space<br/>(control codes, pictures)"]
+    SP --> TXT
+    TXT --> N["menu_row_named<br/>'PACK' → cursor 2"]
+    TXT --> Q["saying(...)<br/>a failure, with the<br/>game's own words"]
+```
+
+**The charmap is parsed, not measured.** Every other table here comes out of
+the disassembly and this is no different — `constants/charmap.asm` names all
+374 of them, so a translated hack gets its own alphabet for free. That is the
+one place this half has it easier than the mobile port, which has only a ROM
+and had to dump the tilemap beside a screenshot and read them against each
+other. The parse was checked against those measurements anyway, on nine tiles,
+because two independent readings agreeing is worth more than either.
+
+<details>
+<summary><b>Advanced detail:</b> three ways to read a tilemap wrongly</summary>
+
+**The Japanese block re-uses English ids.** `charmap.asm` assigns kana to a
+dozen tiles the English block already named, so reading the file to the end
+makes `$ea` the katakana small u instead of the accented e in POKéMON, and
+`$e8` a Japanese full stop instead of a full stop. First definition wins — the
+same rule `SymbolTable` applies to the symbol file.
+
+**A tilemap holds pictures as well as words, and the charmap names those ids
+too.** `$50` is the string *terminator*, `$60`–`$6c` a bold alphabet from
+another font sheet. Meanwhile the pack's item illustration occupies `$50`–`$5e`
+— so admitting them made a picture decode as `@   #`, and a shop's failure
+message quoted that back at the reader. The floor is `$7f`, which is where the
+disassembly's own comment says the sentence font begins.
+
+One real loss, stated rather than hidden: `$6d` is a colon with tinier dots,
+used in the save panel's `0:03`, so that reads `0 03`. The main font has its own
+colon at `$9c` and every sentence uses that one.
+
+**A phrase matches within one row, never across two.** A box's last line
+sitting directly above the text window's first would otherwise match phrases
+nobody wrote. And matching folds to letters and digits, because the screen is
+not a string: POKéMON's accent is one tile, an item count draws its own spaces,
+and POKéGEAR's logo is graphics — so its row reads `  GEAR`.
+
+**The arrow is a tile in a list and a sprite in a question.** In a list menu
+`▶` is in the tilemap and its row and `wMenuCursorY` agree exactly: measured on
+the START menu, cursor 1 through 5 put it on rows 2, 4, 6, 8, 10. In a yes/no
+box it is a sprite and appears nowhere in the tilemap at all. So a list can be
+driven by following the arrow and a question cannot — which is why
+`answer_yes_no` reads the cursor variable instead.
+
+</details>
+
+<details>
+<summary><b>Advanced detail:</b> what it is actually used for</summary>
+
+**Finding a row by name.** `open_pack` asks for `PACK` and gets cursor 2 in one
+press, instead of trying up to eight rows and checking the box each time. The
+old walk is still there for a build whose symbol file omits `wTilemap`.
+
+It also replaced a *claim*. `backup.py` relied on the last three START entries
+always being SAVE, OPTION, EXIT — true on every save checked, and a claim about
+a menu that grows rather than a fact read off it. Now it asks, and falls back to
+the rule.
+
+**Quoting the game on a failure.** `control.saying(message)` appends the last
+readable rows. Measured: `restock` for Poké Balls in Cherrygrove, which keeps
+them behind the Mystery Egg flag, now reports *"not stocking it today — the
+screen said: Awakens sleeping / POKéMON."* — the description the cursor was
+sitting on, which says the stock list really was open and the balls really were
+not in it.
+
+The screen is read **before** anything closes. Taken afterwards it quotes
+whatever the map is showing, which is how the first version of that message
+ended up carrying half a sentence from a box already on its way out.
+
+</details>
+
+---
+
 ## 6. Moving around
 
-<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ fb2726cdd6dc -->
+<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ 648c6771f203 -->
 
 Five layers, each built on the one below. The top one is a fan rather than a
 single answer, because "go somewhere and do a thing" is three different things.
@@ -1546,7 +1648,7 @@ the next in-game save would be layered onto a different game's save file.
 
 ## 9. Recording, checkpoints and backups
 
-<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 483e1acd272d -->
+<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 60c39a536969 -->
 
 Three different things, easily confused.
 
@@ -1608,7 +1710,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ 672634fd119a -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ 9e317b8e46ec -->
 
 ```bash
 ./run-tests                      # everything
@@ -1617,10 +1719,10 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-257 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+268 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
-**104 of them need nothing but the repository**, which is what CI has: the
+**118 of them need nothing but the repository**, which is what CI has: the
 disassembly is cloned but no ROM is built, because building one needs rgbds and
 no ROM is distributed. `tests/fake.py` is why that number is not 20 — a
 stand-in session over a work-RAM buffer, with scripted button responses and a
@@ -1629,7 +1731,7 @@ were decisions about a game state rather than anything needing a cartridge. The
 real readers, the real symbol-table parser, the real capture logic and the
 navigator's fallbacks all run against it.
 
-The other 153 are genuine integration tests — walking, the intro, crossing maps,
+The other 150 are genuine integration tests — walking, the intro, crossing maps,
 a real save — and skip themselves without a ROM rather than failing.
 
 **`--self-check` re-introduces sixteen bugs one at a time** and checks the test

@@ -672,7 +672,7 @@ slot is one step backwards that the next job overwrites.
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-257 tests. Most of them exist because of a specific bug that shipped and was
+268 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -700,9 +700,9 @@ drive a real emulator skip themselves. The runner says so rather than reporting
 a bare pass:
 
 ```
-104 passed, 127 skipped, 0 failed  (0.5s)
+118 passed, 150 skipped, 0 failed  (0.5s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (127 tests need a ROM built from the disassembly)
+  (150 tests need a ROM built from the disassembly)
 ```
 
 That used to be 20 of 108, and the 20 only read data files — the badge covered
@@ -714,7 +714,7 @@ symbol-table parser and the real capture logic run against it, so the learned-
 damage guard, the knockout reporting, the weakening bound and the half-read
 battle check are all verified on every push.
 
-The remaining 153 are genuine integration tests — walking, the intro, crossing
+The remaining 150 are genuine integration tests — walking, the intro, crossing
 maps, a real save — and those still want a ROM. Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
@@ -866,6 +866,36 @@ ball carries, so `take` can tell an item already picked up from one still lying
 there *before* walking to it. Over there a taken ball is still in the object
 list, and pressing A is the only way to find out.
 
+## Reading the screen
+
+Gen 2 draws text as tiles, so the sentences on screen are sitting in work RAM as
+tile ids. The pilot reads them, which changes what a failure can tell you:
+
+```
+gave up (blocked): CHERRYGROVE_MART is not stocking it today
+  -- the screen said: Awakens sleeping / POKéMON.; AZALEA_MART also lists it
+```
+
+That excerpt is the AWAKENING description the cursor was sitting on, which says
+the stock list really was open and Poké Balls really were not in it. Before
+this, every failure could say what the pilot *expected* and none could say what
+turned up instead.
+
+It also means a menu entry can be found by name. `PACK` moves as the START menu
+grows — no POKéDEX or POKéGEAR early on — so opening the pack used to mean
+trying rows and checking each one; now it asks the screen and presses once. The
+same read replaced a *claim* in the save path: that the last three START entries
+are always SAVE, OPTION, EXIT. True on every save checked, and a claim about a
+menu that grows rather than a fact read off it.
+
+The alphabet comes out of `constants/charmap.asm` like every other table here,
+so a translated hack gets its own for free. Two details are worth knowing if you
+extend it, both in [The words on the screen](docs/CODE.md#5b-the-words-on-the-screen):
+readable text starts at tile `$7f` and the ids below it are pictures the charmap
+also names, and the cursor arrow is a *tile* in a list and a *sprite* in a
+yes/no box — so a list can be driven by following the arrow and a question
+cannot.
+
 ## Many titles
 
 Everything this pilot does is resolved by name from the `.sym` file or parsed out
@@ -948,6 +978,7 @@ pilot/
   collision.py   live collision map + breadth-first pathfinding
   nav.py         movement primitives, edge crossing, grass finding
   control.py     driving dialogue, the battle menu, move select and both packs
+  screen.py      the words on the screen, decoded from the tilemap
   battle.py      battle policy: move ranking, the bag, fleeing, switching, prompts
   world.py       map graph from connections + warps; Centers, counters, item balls
   travel.py      cross-map travel, healing, shopping, and picking things up

@@ -254,6 +254,7 @@ class Traveler:
             if not self.approach(thing["x"], thing["y"]):
                 unreachable.append(f"{label} at ({thing['x']},{thing['y']})")
                 continue
+            before_said = self.c.screen_said(1)
             self.s.tap("a")
             # `run_scripts` and nothing else. It has a real level signal
             # (wScriptMode) so it stops the instant the pickup script ends,
@@ -272,7 +273,12 @@ class Traveler:
                 took += gained
                 self.log(f"  take: {', '.join(gained)}")
             else:
-                empty.append(label)
+                # What the game said instead. A fruit tree with nothing on it
+                # says so in words, and so does a ball somebody already took --
+                # which is the difference between "2 had nothing today" and
+                # knowing which two and why.
+                said = self.c.screen_said(1) or before_said
+                empty.append(f"{label} ({said})" if said else label)
         # Two different outcomes, and lumping them together made the second run
         # on a route report failure. **Reaching something that turns out to be
         # empty is not a failure** -- a fruit tree has no event flag, so it is
@@ -386,9 +392,15 @@ class Traveler:
                     "item": item, "message": f"could not reach {shop}"}
         if not self.talk_to_clerk():
             return {"ok": False, "bought": 0, "held": held, "shop": shop,
-                    "item": item, "message": "could not get the clerk's attention"}
+                    "item": item,
+                    "message": self.c.saying("could not get the clerk's "
+                                             "attention")}
         before_money, before_held = self.r.money(), self.r.carrying(item)
         refused = self.c.buy_from_clerk(self.gd.item_id(item), afford)
+        # Read the screen *before* closing anything. Taken afterwards it quotes
+        # whatever the map is showing, which is how the first version of this
+        # ended up appending half a sentence from a box already on its way out.
+        said = self.c.screen_said() if refused else ""
         self.c.close_menus()
         # **The money is the evidence.** Not the presses landing, and not the
         # pocket, which lags a purchase the same way it lags a use -- measured
@@ -398,6 +410,8 @@ class Traveler:
         got = self.r.carrying(item) - before_held
         if spent <= 0 and got <= 0:
             why = refused or "the counter took nothing"
+            if said:
+                why = f"{why} -- the screen said: {said}"
             # Where else to try, which is the useful half of "not stocking it".
             # Cherrygrove keeps Poké Balls behind the Mystery Egg flag, so its
             # listed stock and its real stock differ for the whole early game --

@@ -20,6 +20,13 @@ NICKNAME_EVENTS = ("give_poke", "ball_nickname", "ball_nickname_box")
 # wBattleMenuCursorPosition values, from BattleMenu in engine/battle/core.asm
 FIGHT, PKMN, PACK, RUN = 1, 2, 3, 4
 
+# A list menu draws its first entry two tilemap rows below the window's top
+# edge and one entry every two rows after that -- measured on the START menu,
+# where cursor 1 through 5 put the arrow on rows 2, 4, 6, 8 and 10. So the
+# arrow's drawn row and wMenuCursorY agree exactly, and `row // 2` converts.
+MENU_FIRST_ROW = 2
+MENU_ROW_STRIDE = 2
+
 
 class Control:
     def __init__(self, session, reader):
@@ -27,6 +34,9 @@ class Control:
         self.r = reader
         self._nickname_armed = False
         self._name_menu_pending = False
+        # The last thing that went wrong, with the screen's own words in it.
+        # Read by a caller that returned False and wants to say why.
+        self.last_refusal = ""
 
     # --- dialogue ----------------------------------------------------------
     def advance_text(self, max_taps: int = 400, quiet_frames: int = 120) -> int:
@@ -365,6 +375,55 @@ class Control:
             self.s.tick(6)
         return self.is_box(shape)
 
+    # --- what the screen is saying -----------------------------------------
+    def screen_said(self, lines: int = 2) -> str:
+        """The last readable rows of the screen, or "" if it cannot be read.
+
+        Empty string rather than None, so a caller can append it without
+        asking first.
+        """
+        sc = self.r.screen()
+        return sc.said(lines) if sc is not None else ""
+
+    def saying(self, message: str) -> str:
+        """A failure message with what the game was actually saying on the end.
+
+        "The USE box never appeared" says what the pilot expected. It does not
+        say what turned up instead, and that is the difference between a report
+        somebody can act on and one they can only re-run.
+
+        Returns the message unchanged where the screen cannot be read, so every
+        failure can be wrapped unconditionally.
+        """
+        said = self.screen_said()
+        return f"{message} -- the screen says: {said}" if said else message
+
+    def menu_row_named(self, name: str) -> int | None:
+        """The cursor row of a named entry in the open list menu, or None.
+
+        The arrow is drawn *as a tile*, and its row and `wMenuCursorY` agree
+        exactly: measured on the START menu, cursor 1 through 5 put the arrow on
+        tilemap rows 2, 4, 6, 8 and 10. So a row's screen position converts to a
+        cursor value with `row // 2`.
+
+        This is strictly better than counting rows or trying them one at a time,
+        and it is what the shape-matching in `open_pack` was working around: the
+        START menu grows as the game progresses, so PACK is at a different index
+        depending on how far things have got. Its *name* does not move.
+
+        None where the screen cannot be read or the word is not on it -- and the
+        callers keep their old path for that, because a cartridge whose symbol
+        file omits `wTilemap` should still be drivable.
+        """
+        sc = self.r.screen()
+        if sc is None:
+            return None
+        row = sc.row_of(name)
+        if row is None or row < MENU_FIRST_ROW:
+            return None
+        cursor = row // MENU_ROW_STRIDE
+        return cursor if cursor >= 1 else None
+
     # --- menu rows ---------------------------------------------------------
     def menu_row_count(self, limit: int = 12) -> int:
         """How many rows the open menu has, by stepping until the cursor wraps.
@@ -430,6 +489,21 @@ class Control:
             # A script holding the game is not the pack refusing to open, and
             # saying so is the difference between "look at the pack" and "wait".
             return False
+        # Ask the screen first. The word PACK does not move, so this is one
+        # press instead of up to eight, and it does not depend on the pack's
+        # box shape either. Falls through to the old walk when the screen
+        # cannot be read -- a build whose symbol file omits wTilemap should
+        # still be drivable.
+        self.close_menus()
+        self.open_start_menu()
+        named = self.menu_row_named("PACK")
+        if named is not None:
+            count = self.menu_row_count() or named + 1
+            if self.drive_menu_cursor(named, count):
+                self.s.tap("a")
+                self.s.tick(30)
+                if self.await_box(S.BOX_PACK, tries=12):
+                    return True
         for row in range(1, tries + 1):
             self.close_menus()
             self.open_start_menu()
@@ -574,6 +648,7 @@ class Control:
             return False
         self._pack_confirm()
         if not self.await_box(S.BOX_ITEM_USE, tries=14):
+            self.last_refusal = self.saying("the USE box never appeared")
             self.close_menus()
             return False
         if not self.drive_menu_cursor(S.PACK_USE_ROW, 4):
@@ -581,6 +656,7 @@ class Control:
             return False
         self._pack_confirm()
         if not self.await_box(S.BOX_PARTY_PICK, tries=20):
+            self.last_refusal = self.saying("the party list never came up")
             self.close_menus()
             return False
         if not self.drive_menu_cursor(on + 1, S.MAX_PARTY):

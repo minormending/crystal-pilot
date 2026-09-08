@@ -162,12 +162,19 @@ class GameSaver:
         self.c.open_start_menu()
         if not self._menu_is_open():
             return False
+        # Ask the screen where SAVE is. It says so, and that is better than any
+        # rule about where it sits: this used to rely on the last three entries
+        # always being SAVE, OPTION, EXIT -- true on the saves checked, and a
+        # claim about a menu that grows rather than a fact read off it.
+        named = self.c.menu_row_named("SAVE")
         count = self._entry_count()
         if count < 3:
             return False
-        # The last three START-menu entries are always SAVE, OPTION, EXIT, so
-        # SAVE is count-2 regardless of whether the POKeDEX entry exists yet.
-        order = [count - 2] + [i for i in range(1, count + 1) if i != count - 2]
+        if named is None:
+            # No screen to read. Back to the rule, which is still the best
+            # guess available: SAVE is third from the end.
+            named = count - 2
+        order = [named] + [i for i in range(1, count + 1) if i != named]
         return any(self._try_row(row, count) for row in order)
 
     def _try_row(self, row: int, count: int) -> bool:
