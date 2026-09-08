@@ -64,6 +64,8 @@ class Status:
     species: list = field(default_factory=list)
     trainers: int = 0
     balls: list = field(default_factory=list)
+    here: list = field(default_factory=list)
+    wallet: int = 0
     busy: bool = False
     task: str = ""
     progress: str = ""
@@ -74,7 +76,8 @@ class Status:
         return {
             "where": self.where, "onGrass": self.on_grass, "party": self.party,
             "species": self.species, "trainers": self.trainers,
-            "balls": self.balls, "busy": self.busy, "task": self.task,
+            "balls": self.balls, "here": self.here, "wallet": self.wallet,
+            "busy": self.busy, "task": self.task,
             "progress": self.progress, "result": self.result,
             "frame": self.frame,
         }
@@ -512,6 +515,23 @@ class WebPilot:
             if not self._trainer_count():
                 return "no trainers on this map", None
             return "battle every trainer here", lambda: self.p.trainers()
+        if kind == "take":
+            # The event flags make this offer honest: a ball already picked up
+            # is not counted, so "nothing left here" means nothing left rather
+            # than nothing listed.
+            things = self.p.traveler.things_here()
+            if not things:
+                return "nothing left to pick up here", None
+            named = ", ".join((t["item"] or "a fruit tree") for t in things[:3])
+            return f"pick up {named}", lambda: self.p.take()
+        if kind == "shop":
+            want = cmd.get("item") or (
+                "balls" if not self.p.reader.balls() else "potions")
+            money = self.p.reader.money()
+            if money <= 0:
+                return "the wallet is empty", None
+            return (f"buy {want} ({money} in the wallet)",
+                    lambda: self.p.shop(item=want))
         return f"unknown task {kind!r}", None
 
     # --- status ------------------------------------------------------------
@@ -559,6 +579,12 @@ class WebPilot:
                                       self.p.session.rb("wTimeOfDay")),
                 "trainers": len(self.p.world.trainers.get(const, [])),
                 "balls": balls,
+                # What the map is still holding, and what can be spent. Both
+                # are things the page could not previously say, so Take had to
+                # be a walk to find out and Shop could not exist at all.
+                "here": [t["item"] or "a fruit tree"
+                         for t in self.p.traveler.things_here()],
+                "wallet": r.money(),
                 "frame": self.p.session.frame,
             }
         except Exception as e:  # noqa: BLE001 -- a bad poll must not kill the poller

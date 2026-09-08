@@ -132,3 +132,33 @@ def _(t):
         if got < need:
             problems.append(f"{label} is {got:.2f}:1, needs {need}")
     t.eq(problems, [], f"contrast failures: {problems}")
+
+
+@test("every task the page can start is one the server knows how to plan")
+def _(t):
+    # The failure this catches is a button that looks fine and does nothing.
+    # `_plan` ends with `unknown task {kind!r}`, so a page sending a kind the
+    # server has never heard of gets a polite refusal and the user gets a
+    # control that appears to be broken.
+    src = page()
+    sent = set(re.findall(r'send\(\s*\{\s*kind:\s*"([a-z]+)"', src))
+    sent |= set(re.findall(r'send\(Object\.assign\(\{\s*(kind)\s*\}', src))
+    sent.discard("kind")     # the dynamic hunt/catch form, checked below
+    planned = set(re.findall(r'if kind (?:==|in) \(?["\']([a-z]+)["\']',
+                             WEBUI.read_text()))
+    planned |= set(re.findall(r'["\']([a-z]+)["\']\s*\)\s*:', WEBUI.read_text()))
+    t.gt(len(sent), 3, "the page starts a few kinds of task")
+    unknown = sorted(k for k in sent if k not in planned)
+    t.eq(unknown, [], f"the page can start tasks the server cannot plan: {unknown}")
+
+
+@test("every state field the page reads is one the server publishes")
+def _(t):
+    # Same shape of failure at the other end: a panel that renders "undefined"
+    # because the payload was renamed. `state.foo` is the page's only way in.
+    src = page()
+    read = set(re.findall(r'\bstate\.([A-Za-z_]\w*)', src))
+    published = set(re.findall(r'"(\w+)":', WEBUI.read_text()))
+    t.gt(len(read), 5, "the page reads a few fields")
+    missing = sorted(f for f in read if f not in published)
+    t.eq(missing, [], f"the page reads fields the server does not send: {missing}")

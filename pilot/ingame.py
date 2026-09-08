@@ -37,6 +37,8 @@ ROOT_ITEMS = [
     ("hunt", "HUNT"),
     ("catch", "CATCH"),
     ("trainers", "TRAINERS"),
+    ("take", "TAKE"),
+    ("shop", "SHOP"),
     ("status", "STATUS"),
     ("save", "SAVE GAME"),
     ("close", "CLOSE"),
@@ -137,6 +139,10 @@ class InGameMenu:
                 self._hunt_or_catch(key)
             elif key == "trainers":
                 self._trainers()
+            elif key == "take":
+                self._take()
+            elif key == "shop":
+                self._shop()
 
     def _status(self) -> None:
         r = self.p.reader
@@ -219,6 +225,35 @@ class InGameMenu:
         if ok:
             self._run("TRAINERS", lambda pilot: pilot.trainers())
 
+    def _take(self) -> None:
+        """What the map is holding, named before it is walked to.
+
+        The event flags make this offer honest: a ball already picked up is not
+        listed, so the confirmation says what is actually left rather than what
+        the map once had.
+        """
+        things = self.p.traveler.things_here()
+        if not things:
+            self._show("TAKE", ["nothing left here"])
+            return
+        labels = [(t["item"] or "fruit tree")[:14] for t in things]
+        ok = self._confirm("TAKE", [f"{len(things)} thing(s) here:"] + labels[:4])
+        if ok:
+            self._run("TAKE", lambda pilot: pilot.take())
+
+    def _shop(self) -> None:
+        """Buy the thing the bag has run out of.
+
+        Balls when there are none, potions otherwise -- the same default the
+        CLI takes, because it is the same question.
+        """
+        want = "balls" if not self.p.reader.balls() else "potions"
+        money = self.p.reader.money()
+        ok = self._confirm("SHOP", [f"buy {want}?", f"wallet: {money}"])
+        if ok:
+            self._run(f"SHOP {want.upper()}",
+                      lambda pilot: pilot.shop(item=want))
+
     # --- running a task ----------------------------------------------------
     def _run(self, title: str, fn) -> None:
         self._banner(title, "starting")
@@ -229,7 +264,7 @@ class InGameMenu:
         body = [result.message[:26]]
         stats = getattr(result, "stats", {}) or {}
         for key in ("battles", "encounters", "balls_thrown", "beaten", "heals",
-                    "level", "wall"):
+                    "level", "took", "bought", "spent", "wallet", "wall"):
             if key in stats:
                 body.append(f"{key:<12}{stats[key]}")
         self._show("DONE" if result.ok else "STOPPED", body[:8])

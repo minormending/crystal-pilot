@@ -187,6 +187,10 @@
       <button data-go="trainers">Trainers</button>
     </div>
     <div class="row">
+      <button data-go="take">Take</button>
+      <button data-go="shop">Shop</button>
+    </div>
+    <div class="row">
       <button class="ghost" id="saveBtn">Save game</button>
       <button class="ghost" id="toggleControls">Controls</button>
     </div>
@@ -270,13 +274,43 @@
       <button class="primary" id="startTrainers">Battle them</button>
     </div>
   </section>
+  <!-- confirm take -->
+  <section id="confirmTake" class="hide">
+    <div class="card">
+      <h2>Take</h2>
+      <div id="takeNote"></div>
+      <footer>An item ball already picked up is not listed: the game's own
+      event flag says what is left, so this offer is what is actually there.
+      A fruit tree has no flag and regrows, so it is always offered.</footer>
+    </div>
+    <div class="row">
+      <button class="ghost" data-back>Back</button>
+      <button class="primary" id="startTake">Pick it up</button>
+    </div>
+  </section>
+
+  <!-- confirm shop -->
+  <section id="confirmShop" class="hide">
+    <div class="card">
+      <h2>Shop</h2>
+      <div id="shopNote"></div>
+      <div class="row">
+        <button class="opt" id="shopBalls"><span>Poké Balls</span></button>
+        <button class="opt" id="shopPotions"><span>Potions</span></button>
+      </div>
+      <footer>It walks to the nearest counter that stocks them and buys up to
+      five. The wallet is checked before the walk, not at the till.</footer>
+    </div>
+    <div class="row"><button class="ghost" data-back>Back</button></div>
+  </section>
 </main>
 
 <script>
 const token = new URLSearchParams(location.search).get("t") || "";
 const q = (s) => document.querySelector(s);
 const show = (id) => {
-  ["home","pickMon","pickLevel","pickSpecies","confirmTrainers"]
+  ["home","pickMon","pickLevel","pickSpecies","confirmTrainers",
+   "confirmTake","confirmShop"]
     .forEach(s => q("#"+s).classList.toggle("hide", s !== id));
 };
 
@@ -411,6 +445,19 @@ document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => {
       : "No trainers on this map.";
     q("#startTrainers").disabled = !state.trainers;
     show("confirmTrainers");
+  } else if (kind === "take") {
+    const things = state.here || [];
+    q("#takeNote").textContent = things.length
+      ? `${things.length} thing(s) on ${state.where}: ${things.join(", ")}.`
+      : "Nothing left to pick up here.";
+    q("#startTake").disabled = !things.length;
+    show("confirmTake");
+  } else if (kind === "shop") {
+    const money = state.wallet == null ? "?" : state.wallet;
+    q("#shopNote").textContent = `Wallet: ${money}. Bag: ` +
+      ((state.balls || []).map(b => `${b.name} x${b.count}`).join(", ")
+       || "no Poké Balls") + ".";
+    show("confirmShop");
   }
 });
 
@@ -421,6 +468,9 @@ document.querySelectorAll("[data-step]").forEach(b => b.onclick = () => {
 });
 q("#startGrind").onclick = () => send({ kind: "grind", slot: choice.slot, level: choice.level });
 q("#startTrainers").onclick = () => send({ kind: "trainers" });
+q("#startTake").onclick = () => send({ kind: "take" });
+q("#shopBalls").onclick = () => send({ kind: "shop", item: "balls" });
+q("#shopPotions").onclick = () => send({ kind: "shop", item: "potions" });
 q("#saveBtn").onclick = async () => { await api("/api/save", {}); show("home"); poll(); };
 q("#toggleControls").onclick = () => q("#controls").classList.toggle("hide");
 /* Press and hold, not tap.
