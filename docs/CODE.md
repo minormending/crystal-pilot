@@ -105,7 +105,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py pilot/screen.py pilot/items.py pilot/advice.py @ 320665ebed98 -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py pilot/screen.py pilot/items.py pilot/advice.py @ 90d170a2bf9a -->
 
 Roughly 11,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -488,7 +488,7 @@ contributes nothing, which is indistinguishable from a map with no doors.
 
 ### `collision.py` — what you can walk on
 
-<!-- covers: pilot/collision.py @ 662b5a3f34cd -->
+<!-- covers: pilot/collision.py @ 186415af2942 -->
 
 Decodes the loaded map into "can I stand on this tile", and does breadth-first
 pathfinding over it — so movement is planned rather than discovered by bumping
@@ -1196,7 +1196,7 @@ counting `session.presses` was measuring a list that movement never touches.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 8da4640ec3aa -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 72004f2a953d -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -1221,9 +1221,9 @@ line: reaching something that turns out to be empty is fine (a fruit tree gives
 fruit once a day and is offered every time), while being unable to *reach*
 something is the pilot's problem and is reported as blocked.
 
-### Five that act on where you already are
+### Six that act on where you already are
 
-<!-- covers: pilot/tasks/moment.py pilot/tasks/shop.py pilot/tasks/take.py @ 185c7e403ba0 -->
+<!-- covers: pilot/tasks/moment.py pilot/tasks/shop.py pilot/tasks/take.py @ 90dc5eae7422 -->
 
 Every searching task above goes *looking* for something. These do the obvious
 thing with the situation in front of you and take no target:
@@ -1235,6 +1235,7 @@ thing with the situation in front of you and take no target:
 | `heal` | cures and heals from the bag, then walks if it must | you are in a battle · no party |
 | `take` | picks up what this map is still holding | you are in a battle |
 | `shop` | buys more of what has run out | you are in a battle · nothing sold anywhere stocks it |
+| `duel` | fights the trainer nearest you | you are in a battle · nobody spawned nearby · nobody would fight |
 
 ```mermaid
 flowchart TD
@@ -1246,12 +1247,38 @@ flowchart TD
     M -- yes --> HEAL["heal"]
     M -- no --> N{"anything left on<br/>this map?"}
     N -- yes --> TAKE["take"]
-    N -- no --> SHOP["shop, if the bag has run low"]
+    N -- no --> D{"a trainer<br/>spawned nearby?"}
+    D -- yes --> DUEL["duel"]
+    D -- no --> SHOP["shop, if the bag has run low"]
 ```
 
 None of them contain new game logic: the battle engine, the capture loop and the
 Pokémon Center round trip already existed and are used exactly as the searching
 tasks use them.
+
+`duel` is `trainers` aimed at one person, and the three differences are all
+facts about *people* rather than about item balls. **A trainer is only there if
+the game has spawned it** — Route 30 places three and from the south end none
+has a struct, so the list is who is near and this never walks at a placement.
+**A trainer moves**, so the tile is re-read on every attempt, and the placement
+index rather than the tile is its identity. **A trainer who refuses is not asked
+again**: two in range with the near one already beaten means every attempt goes
+to the nearer, and the whole budget is spent on somebody who will never answer.
+
+Getting there is shared with the sweep rather than copied — `WalksToPeople` in
+`tasks/base.py` holds `_clear_wild` and `_walk_to_verified`, because the last
+thing those two shared by copy was `_object_at`, whose copy looped to sixteen
+where `NUM_OBJECT_STRUCTS` is thirteen.
+
+**And `FACE_FROM` is now derived from `nav.DELTA` instead of written out.** It
+had been written out twice and inverted in all four entries both times —
+`(0, 1): "up"`, where `DELTA` says "up" is `(0, -1)` — so the sweep turned its
+back on every trainer and then pressed A. It got away with it because a trainer
+*spots* you: Route 30's three have sight ranges of 3, 1 and 3, and the tile you
+stand on to talk is inside that, so the game starts the battle itself before the
+press matters. The code did the wrong thing and the right thing happened, which
+is this project's signature failure and the argument for deriving one table from
+another rather than keeping two.
 
 <details>
 <summary><b>Advanced detail:</b> the one thing that had to be detected, not assumed</summary>
@@ -1666,7 +1693,7 @@ the only sign is a button that appears broken. And every `state.foo` the page
 reads must be a field the server publishes, since a renamed payload field
 renders as "undefined" on a phone with no console open.
 
-<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ ec3ea1b86ad3 -->
+<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 27d0234f21c6 -->
 
 The same tasks, three front ends, one `TaskResult` shape between them.
 
@@ -1848,7 +1875,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ a8f5508d38ab -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ ba1aa3d6e8af -->
 
 ```bash
 ./run-tests                      # everything
@@ -1857,10 +1884,10 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-309 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+316 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
-**126 of them need nothing but the repository**, which is what CI has: the
+**127 of them need nothing but the repository**, which is what CI has: the
 disassembly is cloned but no ROM is built, because building one needs rgbds and
 no ROM is distributed. `tests/fake.py` is why that number is not 20 — a
 stand-in session over a work-RAM buffer, with scripted button responses and a
@@ -1869,10 +1896,10 @@ were decisions about a game state rather than anything needing a cartridge. The
 real readers, the real symbol-table parser, the real capture logic and the
 navigator's fallbacks all run against it.
 
-The other 183 are genuine integration tests — walking, the intro, crossing maps,
+The other 189 are genuine integration tests — walking, the intro, crossing maps,
 a real save — and skip themselves without a ROM rather than failing.
 
-**`--self-check` re-introduces twenty-eight bugs one at a time** and checks the test
+**`--self-check` re-introduces thirty bugs one at a time** and checks the test
 meant to catch each one goes red, reverting every mutation afterwards. That is
 the only thing which proves a *test* works: a test written alongside a fix is
 written against a codebase where the bug is already gone, so it has never been

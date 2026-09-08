@@ -326,6 +326,27 @@ MUTATIONS = [
         "",
         "cartridge RAM bank",
     ),
+    (
+        # The literal that was written out twice and inverted both times, so
+        # the sweep turned its back on every trainer before pressing A. Masked
+        # because a trainer spots you first.
+        "the facing table goes back to being written out, inverted",
+        "pilot/tasks/base.py",
+        "FACE_FROM = {delta: button for button, delta in DELTA.items()}",
+        'FACE_FROM = {(0, 1): "up", (0, -1): "down",\n'
+        '             (1, 0): "left", (-1, 0): "right"}',
+        "derived from the movement table",
+    ),
+    (
+        # Two in range with the near one already beaten: every attempt goes to
+        # the nearer, and the whole budget is spent on somebody who will never
+        # answer.
+        "a trainer who refuses is asked again until the budget runs out",
+        "pilot/tasks/moment.py",
+        '                refused.add(who["index"])',
+        "                pass",
+        "not asked again",
+    ),
 ]
 
 

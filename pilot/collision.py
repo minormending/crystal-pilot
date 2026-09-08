@@ -313,7 +313,12 @@ class CollisionMap:
         live = self.live_objects()
         if not live:
             return []
-        return [{"x": o["x"], "y": o["y"], "sprite": o["sprite"]}
+        # The placement index comes with them, because **a trainer moves** and
+        # its tile is therefore not its identity. A caller that walks to one and
+        # is turned away needs to not ask the same person again, and after a
+        # step the coordinates no longer say who that was.
+        return [{"index": o["index"], "x": o["x"], "y": o["y"],
+                 "sprite": o["sprite"]}
                 for o in live if o["type"] == OBJECTTYPE_TRAINER]
 
     # --- pathfinding -------------------------------------------------------

@@ -113,6 +113,17 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--max-turns", type=int, default=60,
                     help="give up after this many turns (default 60)")
 
+    dl = sub.add_parser("duel",
+                        help="fight the trainer nearest you "
+                             "(use `trainers` to sweep the whole route)")
+    dl.add_argument("--flee-below", type=float, default=0.0, metavar="F",
+                    help="try to run if HP drops under this fraction "
+                         "(default 0: play it out)")
+    dl.add_argument("--max-attempts", type=int, default=6,
+                    help="how many people to try before giving up (default 6)")
+    dl.add_argument("--save", action="store_true",
+                    help="save in-game once the duel is won")
+
     cp = sub.add_parser("capture",
                         help="catch the wild Pokemon in front of you right now "
                              "(use `catch` to go and find one)")
@@ -565,6 +576,18 @@ def cmd_battle(pilot, args) -> int:
 
 
 
+def cmd_duel(pilot, args) -> int:
+    # A trainer battle plus the walk to reach them. Bigger than `battle`'s
+    # budget, much smaller than the searching tasks get.
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 2,
+                                    max_wall_seconds=args.timeout))
+    result = pilot.duel(flee_below=args.flee_below,
+                        max_attempts=args.max_attempts,
+                        save_when_done=args.save)
+    print(result.render())
+    return 0 if result.ok else 1
+
+
 def cmd_capture(pilot, args) -> int:
     pilot.session.set_budget(Budget(max_frames=60 * 60 * 20,
                                     max_wall_seconds=args.timeout))
@@ -690,6 +713,7 @@ STANDALONE = {
 IN_GAME = {
     "status": cmd_status, "hunt": cmd_hunt, "battle": cmd_battle,
     "capture": cmd_capture, "heal": cmd_heal, "catch": cmd_catch,
+    "duel": cmd_duel,
     "trainers": cmd_trainers, "grind": cmd_grind, "shop": cmd_shop,
     "take": cmd_take,
 }

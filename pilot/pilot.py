@@ -18,7 +18,7 @@ from .tasks.bootstrap import Bootstrap
 from .tasks.catch import CatchTask
 from .tasks.grind import GrindTask
 from .tasks.hunt import HuntTask
-from .tasks.moment import CaptureTask, FightTask, HealTask
+from .tasks.moment import CaptureTask, DuelTask, FightTask, HealTask
 from .tasks.shop import ShopTask
 from .tasks.take import TakeTask
 from .tasks.trainers import TrainerSweepTask
@@ -287,6 +287,18 @@ class Pilot:
                          self.world, self.gamedata, self.traveler, self.saver,
                          self.backups, log=self.log)
         return task.run(**kwargs)
+
+    def duel(self, **kwargs):
+        self.mark_undo("duel")
+        if not self.collision.calibrated:
+            self.calibrate()
+        task = DuelTask(self.session, self.reader, self.control, self.nav,
+                        self.world, self.gamedata, self.traveler, self.saver,
+                        self.backups, log=self.log)
+        result = task.run(**kwargs)
+        if result.saved:
+            self.session.flush_sram()
+        return result
 
     def capture(self, **kwargs):
         self.mark_undo("capture")

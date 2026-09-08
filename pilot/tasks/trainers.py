@@ -4,13 +4,10 @@ from __future__ import annotations
 import time
 
 from ..battle import BattleEngine, BattlePolicy
-from .base import TaskLifecycle, TaskResult
-
-# Which way to face to talk to someone standing on the adjacent tile.
-FACE_FROM = {(0, 1): "up", (0, -1): "down", (1, 0): "left", (-1, 0): "right"}
+from .base import FACE_FROM, TaskLifecycle, TaskResult, WalksToPeople
 
 
-class TrainerSweepTask(TaskLifecycle):
+class TrainerSweepTask(TaskLifecycle, WalksToPeople):
     name = "trainers"
 
     def __init__(self, session, reader, control, nav, world, gamedata,
@@ -156,49 +153,6 @@ class TrainerSweepTask(TaskLifecycle):
             if self.c.script_running():
                 self.c.run_scripts()
         return not self.r.in_battle()
-
-    def _clear_wild(self) -> bool:
-        """Deal with a battle met on the way to a trainer.
-
-        Returns True if the way is clear again. A trainer battle is left alone --
-        that is what we came for, and the caller checks for it straight after the
-        walk. The battle has to be pumped to a decision point first, because
-        `is_trainer` is only meaningful once the battle structs are populated.
-        """
-        if not self.r.in_battle():
-            return True
-        what = self._escape.next_decision()
-        if what in ("ended", "timeout"):
-            self.n.settle()
-            return not self.r.in_battle()
-        state = self.r.battle()
-        if state.ready and state.is_trainer:
-            return False          # leave it for the caller
-        self._escape.run(target_slot=None, max_turns=25, menu_open=(what == "menu"))
-        self.n.settle()
-        return not self.r.in_battle()
-
-    def _walk_to_verified(self, x: int, y: int, attempts: int = 12) -> str:
-        """Walk to (x, y), pushing through wild encounters. -> at | battle | no.
-
-        A single walk_to gives up after its replan budget, and crossing a route
-        full of grass burns that budget on encounters rather than on obstacles,
-        so the walk is simply retried -- each attempt resumes from wherever the
-        last one stopped.
-        """
-        for _ in range(attempts):
-            if self.r.in_battle():
-                if not self._clear_wild():
-                    return "battle"
-            self.n.walk_to(x, y, on_battle=self._clear_wild)
-            if self.r.in_battle():
-                if not self._clear_wild():
-                    return "battle"
-                continue
-            loc = self.r.location()
-            if (loc.x, loc.y) == (x, y):
-                return "at"
-        return "no"
 
     def _object_at(self, tx: int, ty: int) -> bool:
         """Is a loaded map object standing on this tile?
