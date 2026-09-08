@@ -425,6 +425,11 @@ class Control:
         third from the end; PACK has no such anchor, so this drives to a row,
         presses A, and asks whether the pack's own box is what appeared.
         """
+        ok, _why = self.settle_for_menu()
+        if not ok:
+            # A script holding the game is not the pack refusing to open, and
+            # saying so is the difference between "look at the pack" and "wait".
+            return False
         for row in range(1, tries + 1):
             self.close_menus()
             self.open_start_menu()
@@ -659,6 +664,49 @@ class Control:
         return None
 
     # --- start menu / saving ----------------------------------------------
+    def settle_for_menu(self, rounds: int = 12) -> tuple[bool, str]:
+        """Get the overworld into a state where START opens. -> (ok, why not).
+
+        **START is ignored while a map script is running**, while the map is
+        still loading, and during a battle. So anything reached through the
+        START menu -- the pack, the in-game save -- fails for a reason that has
+        nothing to do with the menu it was trying to open, and then reports the
+        menu.
+
+        Measured on the `grass_cyndaquil` fixture, which sits with wScriptMode
+        at 1: four consecutive START presses do nothing at all, `menu_row_count`
+        then walks the player through grass looking for rows that are not
+        there, and the caller is told the pack would not open.
+
+        This lived in `Pilot.settle_for_save` and was wired to exactly one of
+        its callers -- the three front ends ask before offering a save, and
+        neither `save_in_game` nor `open_pack` did. Same knowledge, one place,
+        every caller.
+        """
+        # Wait out an in-flight map load first: coordinate reads are
+        # meaningless while the key is (0, 0), and `menu_row_count` uses them
+        # to notice that the player is walking.
+        for _ in range(240):
+            if self.r.location().key != (0, 0):
+                break
+            self.s.tick(1)
+        for _ in range(rounds):
+            if self.r.in_battle():
+                return False, "the game cannot open the menu during a battle"
+            if self.script_running():
+                self.run_scripts()
+                continue
+            if not self.s.world_loaded():
+                self.s.tick(60)
+                continue
+            # Let any in-progress step finish so the player is tile-aligned.
+            self.s.tick(30)
+            if not self.script_running() and not self.r.in_battle():
+                return True, ""
+        if self.r.in_battle():
+            return False, "the game cannot open the menu during a battle"
+        return False, "the game never settled into a controllable overworld"
+
     def open_start_menu(self) -> None:
         self.s.tap("start", hold=8, gap=12)
         self.s.tick(20)

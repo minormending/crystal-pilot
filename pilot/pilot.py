@@ -432,24 +432,16 @@ class Pilot:
         script may be running, or the map may still be loading. START is ignored
         in all of those, so saving straight after a resume fails for reasons that
         have nothing to do with the save menu itself.
+
+        The work is `Control.settle_for_menu`, because the pack needs exactly
+        the same thing and this used to be the only copy -- wired to the three
+        front ends and to neither of the two places that press START
+        themselves.
         """
-        self.nav.settle()
-        for _ in range(rounds):
-            if self.reader.in_battle():
-                return False, "that point is mid-battle, and the game cannot save then"
-            if self.control.script_running():
-                self.control.run_scripts()
-                continue
-            if not self.session.world_loaded():
-                self.session.tick(60)
-                continue
-            # Let any in-progress step finish so the player is tile-aligned.
-            self.session.tick(30)
-            if not self.control.script_running() and not self.reader.in_battle():
-                return True, ""
-        if self.reader.in_battle():
+        ok, why = self.control.settle_for_menu(rounds=rounds)
+        if not ok and self.reader.in_battle():
             return False, "that point is mid-battle, and the game cannot save then"
-        return False, "the game never settled into a controllable overworld"
+        return ok, why
 
     def save(self) -> bool:
         ok = self.saver.save_in_game()

@@ -104,7 +104,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ db3671b88b67 -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 5c721b9877ce -->
 
 Roughly 10,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -163,7 +163,7 @@ flowchart TD
 | `world.py` | "which map is west of here, where are its doors, its counter, its item balls?" |
 | `travel.py` | "get to Cherrygrove and heal, then come back", "go and buy five balls" |
 | `advice.py` | "this grind is slow — then where should I go?" |
-| `control.py` | "answer this text box / pick this menu entry / use this item" |
+| `control.py` | "answer this text box / pick this menu entry / use this item / is the overworld even listening?" |
 | `battle.py` | "play out this battle under this policy" |
 | `tasks/` | "grind to 12", "catch a Sentret", "sweep this route", "buy potions" |
 | `pilot.py` | assembles all of it and exposes the tasks |
@@ -584,7 +584,7 @@ usually the one that mattered.
 
 ## 5. Battles
 
-<!-- covers: pilot/battle.py pilot/control.py @ f73b5cff0a24 -->
+<!-- covers: pilot/battle.py pilot/control.py @ dcac9654c9fb -->
 
 One engine, driven by a policy. A grind wants to win, a hunt wants to leave, a
 catch wants to weaken and stop — all three are the same loop with different
@@ -721,7 +721,7 @@ listed in the README's limits for that reason.
 
 ## 5a. The bag
 
-<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 15fd14158238 -->
+<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 80313c297561 -->
 
 The pilot could throw a ball and do nothing else with the pack. Using an item on
 a party member is the thing everything else here depends on: healing without a
@@ -756,6 +756,20 @@ status byte rather than by the presses landing.
 
 <details>
 <summary><b>Advanced detail:</b> five measurements, each of which made this report success while doing nothing</summary>
+
+**START is ignored while a map script is running.** So is everything reached
+through it, and the failure names the wrong thing: `open_pack` reported "could
+not open the pack" for a pack that was fine, and `save_in_game` made three
+identical attempts and reported "did not commit". Measured on the
+`grass_cyndaquil` fixture, which sits with `wScriptMode` at 1 — four
+consecutive START presses do nothing at all, and then `menu_row_count` walks the
+player through grass looking for rows that are not there.
+
+`Control.settle_for_menu` runs the script out first and names the one case it
+cannot fix (a battle). The knowledge was already written down, in
+`Pilot.settle_for_save`, and wired to exactly one set of callers: the three
+front ends ask before *offering* a save, and neither of the two places that
+press START themselves did.
 
 **The pack's START row is not fixed.** The START menu grows as the game
 progresses — no POKéDEX or POKéGEAR early on — so PACK sits at a different
@@ -1510,7 +1524,7 @@ the next in-game save would be layered onto a different game's save file.
 
 ## 9. Recording, checkpoints and backups
 
-<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 1414a09a9c56 -->
+<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 483e1acd272d -->
 
 Three different things, easily confused.
 
@@ -1581,7 +1595,7 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-250 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+253 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
 **104 of them need nothing but the repository**, which is what CI has: the

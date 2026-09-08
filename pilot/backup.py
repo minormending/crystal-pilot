@@ -141,6 +141,13 @@ class GameSaver:
         if self.r.in_battle():
             self.log("save: refusing to save during a battle")
             return False
+        # START is ignored while a map script runs, so three attempts would all
+        # fail identically and report "did not commit" -- which blames the save
+        # menu for a script that had not finished.
+        ok, why = self.c.settle_for_menu()
+        if not ok:
+            self.log(f"save: {why}")
+            return False
         for attempt in range(1, attempts + 1):
             if self._one_attempt():
                 self.log("save: committed (game wrote its save data)")

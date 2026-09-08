@@ -195,3 +195,42 @@ def _(t):
     p.session.tick(90)
     t.eq(p.reader.mon(0).hp, 29, "and that is what heals it")
     c.close_menus()
+
+
+@test("a running map script is settled, not reported as the pack refusing")
+def _(t):
+    # START is ignored while wScriptMode is non-zero. The `grass_cyndaquil`
+    # fixture sits with a script running, and before this four consecutive
+    # START presses did nothing at all -- then `menu_row_count` walked the
+    # player through grass looking for rows that were not there, and the caller
+    # was told the pack would not open.
+    p = t.pilot("grass_cyndaquil", timeout=300)
+    t.true(p.control.script_running(), "this fixture has a script running")
+    ok, why = p.control.settle_for_menu()
+    t.true(ok, f"it settles: {why}")
+    t.false(p.control.script_running(), "and the script is finished")
+    t.give_items(p, ((I.ITEM_POCKET, ((t.gamedata.item_id("POTION"), 3),)),))
+    t.true(p.control.open_pack(), "so the pack opens")
+    t.true(p.control.is_box(S.BOX_PACK), "and it really is the pack")
+    p.control.close_menus()
+
+
+@test("the in-game save settles first rather than failing three times")
+def _(t):
+    # Three attempts against a running script all fail identically and report
+    # "did not commit", which blames the save menu for a script that had not
+    # finished. The settle was already written, in `Pilot.settle_for_save`, and
+    # wired only to the three front ends -- not to the saver itself.
+    p = t.pilot("grass_cyndaquil", timeout=300)
+    t.true(p.control.script_running(), "a script is running")
+    t.true(p.saver.save_in_game(), "the save commits anyway")
+
+
+@test("settling refuses a battle by name instead of waiting it out")
+def _(t):
+    p = t.pilot("route30", timeout=600)
+    t.give_balls(p)
+    t.into_wild_battle(p)
+    ok, why = p.control.settle_for_menu(rounds=2)
+    t.false(ok, "it cannot settle mid-battle")
+    t.contains(why, "battle", "and says that is why")
