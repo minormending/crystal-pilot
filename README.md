@@ -71,14 +71,16 @@ pre-commit hook runs it; enable it once per clone with
 `git config core.hooksPath .githooks`.
 
 **[Ported by Measurement](https://claude.ai/code/artifact/78995dc4-984b-4e7b-add1-5e329ef13e37)**
-is the write-up of the port from the mobile build: what crossed, the sixteen
+is the write-up of the port from the mobile build: what crossed, the seventeen
 measurements that made each answer work — a button hold in frames, two WRAM
 addresses twenty-six bytes apart, a route that pays and cannot be survived —
-and the twelve defects the port found in code that predates it. Six of those
+and the thirteen defects the port found in code that predates it. Six of those
 were found by checking a sentence this repository had already written down, and
-four more by first measuring which of its code had never run at all, which is
-the technique the third pass added because the first one only works on code you
-have already read.
+four more by first measuring which of its code had never run at all — the
+technique the third pass added, because checking the claims only works on code
+somebody has already read. The thirteenth came from pointing both at the
+quality gates instead of the code, and finding that the linter had never opened
+two of the files it appeared to cover.
 
 ## Requirements
 
