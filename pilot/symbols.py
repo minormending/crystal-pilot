@@ -178,6 +178,71 @@ NAME_MENU_FIRST_PRESET = 2
 MON_NAME_LENGTH = 11
 PLAYER_NAME_LENGTH = 8
 
+# --- which box is on screen ------------------------------------------------
+# "A window is open" and "the cursor is somewhere" are both true of the *wrong*
+# box, because the cursor keeps its previous value between boxes. What
+# identifies one is its shape: how many rows it has (wMenuDataItems) and which
+# screen row it starts at (wMenuBorderTopCoord). Every box the pack and the
+# shop pass through is therefore matched on shape before anything is pressed
+# into it.
+#
+# Measured rather than read off the menu headers, because a header is loaded by
+# a routine and the values that reach WRAM are what a driver can see. The shop
+# figures came from Cherrygrove's Mart, buying two POTIONs at 300 each and
+# watching the wallet fall 3000 -> 2700 -> 2400.
+#
+# Three of these share a signature -- LEARN_MOVE, SHOP_CONFIRM and
+# BATTLE_ITEM_USE are all two rows at row 7. That is safe only because the
+# contexts cannot overlap: a shop box exists only while a shop is being driven.
+# It is a claim the code has to keep, not a property it gets for free.
+BOX_PACK = (5, 1)                # the pack, opened from START
+BOX_ITEM_USE = (4, 3)            # USE / GIVE / TOSS / QUIT
+BOX_BATTLE_ITEM = (2, 7)         # the battle pack's own USE / QUIT
+# "Use on which Pokemon?" -- matched by where it starts, not by how many rows
+# it has. Measured on the same one-Pokemon party: the field pack's party list
+# reports four rows, the battle pack's reports two. Two menu headers for one
+# question, so the count is not a fact about this box.
+#
+# `top == 0` is shared with the START menu and the shop's thanks, which is safe
+# only because of *when* it is asked: immediately after confirming USE inside
+# an open pack, neither of those can be on screen. That is a claim this file's
+# callers have to keep rather than a property the shape gives them.
+BOX_PARTY_PICK = (None, 0)
+BOX_SHOP_MENU = (3, 0)           # BUY / SELL / QUIT, BUY on row 1
+BOX_SHOP_LIST = (4, 3)           # what the mart stocks; wCurItem says which
+BOX_SHOP_HOW_MANY = (4, 15)      # the quantity box
+BOX_SHOP_CONFIRM = (2, 7)        # "that'll be N. OK?", YES on row 1
+BOX_SHOP_DONE = (2, 0)           # the thanks; A returns to the list
+
+# wCurItem while the cursor sits on the pack's CANCEL row. DOWN past the last
+# entry lands here and *stays* -- the list does not wrap -- so an overshoot has
+# to be walked back rather than pressed through.
+CANCEL_ITEM = 0xFF
+
+# The pack's USE row. GIVE and TOSS are the two rows under it, and TOSS throws
+# the item away, which is why the cursor is confirmed rather than assumed even
+# though it opens here.
+PACK_USE_ROW = 1
+
+# How long to hold A inside the *field* pack.
+#
+# Measured, one frame at a time, on a Route 30 save with three Potions: a hold
+# of 5, 6 or 7 frames is swallowed and the USE box never appears; 8 lands, and
+# so does everything above it. The ordinary tap is 6, which is why the first
+# version of this reported "the USE box never appeared" from inside a pack that
+# was open, on the right item, with the cursor in the right place.
+#
+# It is the *field* pack's quirk and not the pack's: the same press in the
+# battle pack lands at 6, measured the same way. So this is deliberately not
+# applied to `throw_ball`, which has always worked and would only be put at
+# risk by being changed.
+#
+# The D-pad in the same list wants the opposite: at a hold of 8 a DOWN press
+# auto-repeats and the cursor arrives back where it started. Those presses stay
+# short, and `_pack_moved` watches the value rather than trusting either number.
+FIELD_PACK_HOLD = 10
+FIELD_PACK_GAP = 12
+
 
 def decode_text(raw) -> str:
     """Decode the game's own character encoding into a Python string.

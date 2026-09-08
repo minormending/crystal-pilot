@@ -104,7 +104,10 @@ def _(t):
         s.tick(20)
         t.eq(s.rb("wBattleMenuCursorPosition"), action,
              f"committed choice for {label}")
-        c.close_menus(6)          # back out to the battle menu for the next one
+        # `back_out`, not `close_menus`: inside a battle wWindowStackSize
+        # reads 0 for move select, so the checked version returns having
+        # pressed nothing and the next action is chosen from the wrong screen.
+        c.back_out(6)             # back out to the battle menu for the next one
     eng.p.always_flee = True
     eng.run(target_slot=None, max_turns=25)
 
