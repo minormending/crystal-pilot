@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import items as I
 from .control import FIGHT, PKMN, RUN, TEXT_EVENTS
 
 # Hook event -> the decision name run() dispatches on. Kept as one explicit map
@@ -32,6 +33,19 @@ class BattlePolicy:
     learn_new_moves: bool = False   # when all 4 slots are full
     switch_to_target: bool = True
     fight_if_cornered: bool = True   # if we cannot escape, win instead
+    # Drink a Potion mid-fight at or under this HP fraction, if one is carried.
+    #
+    # Above `flee_below` on purpose. The order the two thresholds are checked
+    # in is the feature: reaching for the bag at 45% and fleeing at 35% means a
+    # fight that can still be won gets healed and won, while the flee is what
+    # answers an empty bag. Setting this *below* flee_below would make it dead
+    # code, because the flee fires first.
+    heal_below: float = 0.45
+    use_items: bool = True          # False for a run that must not spend items
+    # A trainer battle cannot be fled, so the bag is the only answer there --
+    # and running out of Potions mid-sweep is how a trainer sweep blacks out.
+    # Bounded so a refused item cannot loop the turn counter away.
+    max_heals: int = 6
 
 
 @dataclass
@@ -53,6 +67,7 @@ class BattleEngine:
         self.p = policy or BattlePolicy()
         self.log = log
         self._cornered = False
+        self._heals_used = 0
 
     # --- move choice -------------------------------------------------------
     def rank_moves(self, battle) -> list[tuple[int, dict, float]]:
@@ -132,8 +147,10 @@ class BattleEngine:
         policy asked for.
         """
         out = BattleOutcome()
-        # Reset per battle: "cannot escape" is a fact about this fight.
+        # Reset per battle: "cannot escape" and "how many Potions have gone
+        # into this fight" are both facts about this fight.
         self._cornered = False
+        self._heals_used = 0
         pending = "menu" if menu_open else None
         if not self.r.in_battle():
             out.result = "ended"
@@ -163,6 +180,9 @@ class BattleEngine:
                         # keeps attacking. Win the fight instead.
                         self._cornered = True
                         out.note("could not escape; fighting it out instead")
+                    continue
+                if action == "heal":
+                    self._heal_in_battle(out)
                     continue
                 if action == "switch":
                     self._switch_to(target_slot, out)
@@ -203,11 +223,70 @@ class BattleEngine:
                 return "switch"
         if b.is_wild and self.p.always_flee:
             return "flee"
-        if b.active_max_hp and (b.active_hp / b.active_max_hp) < self.p.flee_below:
-            if b.is_wild:
-                out.note(f"fleeing at {b.active_hp}/{b.active_max_hp} HP")
-                return "flee"
+        frac = (b.active_hp / b.active_max_hp) if b.active_max_hp else 1.0
+        # The bag before the flee, and above the flee threshold. A fight that
+        # can still be won is worth a Potion; the flee is what answers an empty
+        # bag. Checked the other way round, the flee fires first and the bag is
+        # never opened -- which is what happened before this existed, and why a
+        # trainer sweep with Potions in the bag still blacked out: a trainer
+        # battle cannot be fled at all, so "flee" meant "keep fighting at 20%".
+        if self._should_heal(frac):
+            healer = self._battle_healer(b)
+            if healer is not None:
+                return "heal"
+        if frac < self.p.flee_below and b.is_wild:
+            out.note(f"fleeing at {b.active_hp}/{b.active_max_hp} HP")
+            return "flee"
         return "fight"
+
+    def _should_heal(self, frac: float) -> bool:
+        return (self.p.use_items and self._heals_used < self.p.max_heals
+                and frac <= self.p.heal_below)
+
+    def _battle_healer(self, b) -> str | None:
+        """The least wasteful HP item in the bag that works in a battle.
+
+        Battle-usable is a different list from field-usable -- a Berry heals HP
+        and is `ITEMMENU_NOUSE` outside a fight -- so the menu field that
+        applies here is asked for by name rather than assumed to be the same.
+        """
+        missing = b.active_max_hp - b.active_hp
+        if missing <= 0:
+            return None
+        amounts = I.healers(self.gd.root_str, in_battle=True)
+        held = [(n, a) for n, a in amounts.items() if self.r.carrying(n) > 0]
+        if not held:
+            return None
+        enough = [(n, a) for n, a in held if a is None or a >= missing]
+        pool = enough or held
+        if enough:
+            return min(pool, key=lambda na: (na[1] is None, na[1] or 0, na[0]))[0]
+        return max(pool, key=lambda na: (na[1] or 0, na[0]))[0]
+
+    def _heal_in_battle(self, out: BattleOutcome) -> None:
+        """Drink something, and report by HP rather than by the presses.
+
+        The same standard the field pack holds itself to: at full HP the game
+        takes every press, says the item would have no effect and spends
+        nothing. The turn is consumed either way, so a heal that moved no HP is
+        counted against the budget -- otherwise a refused item is an infinite
+        turn.
+        """
+        b = self.r.battle()
+        name = self._battle_healer(b)
+        if name is None:
+            return
+        self._heals_used += 1
+        before = b.active_hp
+        self.c.use_item_in_battle(self.gd.item_id(name), b.active_slot)
+        after = self.r.battle().active_hp
+        if after > before:
+            out.note(f"{name} mid-fight: {before} -> {after} HP")
+        else:
+            out.note(f"{name} moved no HP; not trying it again")
+            # Stop reaching for the bag this battle. The alternative is
+            # spending every remaining turn on an item the game will not accept.
+            self._heals_used = self.p.max_heals
 
     def _attack(self, out: BattleOutcome) -> None:
         self.s.clear_events()

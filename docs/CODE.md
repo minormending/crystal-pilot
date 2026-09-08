@@ -994,7 +994,7 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-203 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+207 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
 **67 of them need nothing but the repository**, which is what CI has: the

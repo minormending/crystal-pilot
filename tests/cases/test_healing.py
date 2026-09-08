@@ -119,6 +119,71 @@ def _(t):
     t.eq(p.reader.carrying("POTION"), 3, "and nothing was spent")
 
 
+def _into_hurt_battle(t, p, potions: int, hp: int = 12):
+    """A wild battle with the lead on `hp`, and `potions` in the bag."""
+    gd = t.gamedata
+    entries = ((gd.item_id("POTION"), potions),) if potions else ()
+    t.give_items(p, ((I.ITEM_POCKET, entries),
+                     (I.BALL_POCKET, ((gd.item_id("POKE_BALL"), 5),))))
+    t.into_wild_battle(p)
+    # Both copies: the battle draws from wBattleMonHP, the party struct is what
+    # survives the fight.
+    addr = p.session.sym.addr("wBattleMonHP")
+    p.session.wb(addr, hp >> 8)
+    p.session.wb(addr + 1, hp & 0xFF)
+    _hurt(p, hp)
+
+
+@test("the bag is reached for before the thing on the field faints")
+def _(t):
+    from pilot.battle import BattleEngine, BattlePolicy
+    p = t.pilot("route30", timeout=600)
+    _into_hurt_battle(t, p, potions=3)
+    eng = BattleEngine(p.session, p.reader, p.control, t.gamedata,
+                       BattlePolicy(), log=lambda m: None)
+    out = eng.run(max_turns=12, menu_open=True)
+    # 12/44 is 27%, under both thresholds. The bag is checked first, so this is
+    # a fight that gets healed and won rather than fled.
+    t.eq(out.result, "won", "won it")
+    t.eq(p.reader.carrying("POTION"), 2, "having spent one Potion")
+    t.contains(" ".join(out.notes), "mid-fight", "and said so")
+
+
+@test("an empty bag still flees, which is what the flee threshold is for")
+def _(t):
+    from pilot.battle import BattleEngine, BattlePolicy
+    p = t.pilot("route30", timeout=600)
+    _into_hurt_battle(t, p, potions=0)
+    eng = BattleEngine(p.session, p.reader, p.control, t.gamedata,
+                       BattlePolicy(), log=lambda m: None)
+    out = eng.run(max_turns=12, menu_open=True)
+    t.eq(out.result, "fled", "left instead")
+    t.contains(" ".join(out.notes), "fleeing", "and said why")
+
+
+@test("the heal threshold sits above the flee threshold or it is dead code")
+def _(t):
+    from pilot.battle import BattlePolicy
+    pol = BattlePolicy()
+    # Checked in this order, so a heal threshold at or below the flee threshold
+    # can never fire: the flee returns first. This is the whole reason the
+    # default is 0.45 against 0.35.
+    t.gt(pol.heal_below, pol.flee_below,
+         "the bag is reached for before the exit")
+
+
+@test("a run told not to spend items does not spend them")
+def _(t):
+    from pilot.battle import BattleEngine, BattlePolicy
+    p = t.pilot("route30", timeout=600)
+    _into_hurt_battle(t, p, potions=3)
+    eng = BattleEngine(p.session, p.reader, p.control, t.gamedata,
+                       BattlePolicy(use_items=False), log=lambda m: None)
+    out = eng.run(max_turns=12, menu_open=True)
+    t.eq(p.reader.carrying("POTION"), 3, "the bag is untouched")
+    t.eq(out.result, "fled", "and it flees the way it used to")
+
+
 @test("heal --force still makes the round trip with a full bag")
 def _(t):
     p = t.pilot("route30")
