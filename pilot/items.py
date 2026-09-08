@@ -26,9 +26,22 @@ from pathlib import Path
 from .gamedata import parse_consts
 
 # item_attribute price, held effect, parameter, property, pocket, field, battle
+#
+# The `property` field is a *flag expression*, not a name: twenty-five key items
+# write it `CANT_SELECT | CANT_TOSS`. A pattern expecting one word there matched
+# 232 of the file's 257 rows and dropped the rest in silence -- which is the
+# failure this module's own docstring warns about, committed by the module. The
+# fields that can carry an expression are matched as one, and only the four
+# fields actually read are captured.
+FIELD = r"[\w\s|]+?"
 ITEM_ATTR = re.compile(
-    r"^\s*item_attribute\s+(-?\$?\w+)\s*,\s*\w+\s*,\s*(?:-?\$?\w+)\s*,"
-    r"\s*\w+\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)"
+    r"^\s*item_attribute\s+(-?\$?\w+)\s*,"      # price
+    rf"\s*{FIELD}\s*,"                          # held effect
+    r"\s*(?:-?\$?\w+)\s*,"                      # parameter
+    rf"\s*{FIELD}\s*,"                          # property
+    r"\s*(\w+)\s*,"                             # pocket
+    r"\s*(\w+)\s*,"                             # field menu
+    r"\s*(\w+)"                                 # battle menu
 )
 # The comment line above each row is the only place the item's *name* appears.
 ATTR_NAME = re.compile(r"^;\s*([A-Z0-9_]+)\s*$")

@@ -346,7 +346,7 @@ it.
 
 ### `gamedata.py`, `wild.py`, `items.py` — what the cartridge knows
 
-<!-- covers: pilot/gamedata.py pilot/wild.py pilot/items.py @ fad0d7136416 -->
+<!-- covers: pilot/gamedata.py pilot/wild.py pilot/items.py @ 07c4b5889192 -->
 
 Species names, move power and type, map names, walkability tables, event flag
 indices, which wild Pokémon appear where, and everything about the bag — all
@@ -686,7 +686,7 @@ listed in the README's limits for that reason.
 
 ## 5a. The bag
 
-<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ b16dee144edb -->
+<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 15fd14158238 -->
 
 The pilot could throw a ball and do nothing else with the pack. Using an item on
 a party member is the thing everything else here depends on: healing without a
@@ -782,7 +782,7 @@ silently does nothing.
 
 ## 6. Moving around
 
-<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ 4478bd7f2a8e -->
+<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ fb2726cdd6dc -->
 
 Five layers, each built on the one below. The top one is a fan rather than a
 single answer, because "go somewhere and do a thing" is three different things.
@@ -1540,7 +1540,7 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-239 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+250 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
 **104 of them need nothing but the repository**, which is what CI has: the

@@ -18,7 +18,17 @@ from . import items as I
 
 MAP_ATTR = re.compile(r"^\s*map_attributes\s+(\w+)\s*,\s*([A-Z0-9_]+)\s*,")
 CONNECTION = re.compile(r"^\s*connection\s+(north|south|east|west)\s*,\s*(\w+)\s*,\s*([A-Z0-9_]+)\s*,\s*(-?\d+)")
-WARP = re.compile(r"^\s*warp_event\s+(\d+)\s*,\s*(\d+)\s*,\s*([A-Z0-9_]+)\s*,\s*(\d+)")
+# The destination warp index can be `-1`, which `(\d+)` refuses -- so six warps
+# were being dropped in silence, and with them four real edges out of the
+# Celadon and Goldenrod department store elevators. A dropped edge is a place
+# the router cannot leave.
+#
+# `-1` means the game's script decides where you come out rather than a fixed
+# warp index, which is why the elevators use it. It is recorded as `to_warp:
+# None`: the edge exists, and a hop the pilot then turns out not to be able to
+# drive is what `travel_to`'s `avoid_hops` is for.
+WARP = re.compile(
+    r"^\s*warp_event\s+(\d+)\s*,\s*(\d+)\s*,\s*([A-Z0-9_]+)\s*,\s*(-?\d+)")
 NURSE = re.compile(r"^\s*object_event\s+(\d+)\s*,\s*(\d+)\s*,\s*SPRITE_NURSE\b")
 CLERK = re.compile(r"^\s*object_event\s+(\d+)\s*,\s*(\d+)\s*,\s*SPRITE_CLERK\b")
 # `pokemart MARTTYPE_STANDARD, MART_CHERRYGROVE` -- the type says how the
@@ -144,8 +154,13 @@ class World:
                     m = WARP.match(line)
                     if m:
                         x, y, to, to_warp = m.groups()
-                        entries.append({"x": int(x), "y": int(y),
-                                        "to": to, "to_warp": int(to_warp)})
+                        entries.append({
+                            "x": int(x), "y": int(y), "to": to,
+                            # None for the script-decided `-1`, so a caller can
+                            # tell "come out at warp 3" from "the script says".
+                            "to_warp": (None if int(to_warp) < 0
+                                        else int(to_warp)),
+                        })
                     continue
                 m = NURSE.match(raw)
                 if m and const not in self.nurses:

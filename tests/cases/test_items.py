@@ -168,3 +168,42 @@ def _(t):
         p.session.wb(base + i * 2 + 1, 1)
     t.lte(len(p.reader.balls()), I.POCKET_LIMITS[I.BALL_POCKET],
           "never more entries than the pocket holds")
+
+
+@test("every attribute row in the file is parsed, and none is dropped in silence")
+def _(t):
+    # The guard this module needed and did not have. Its first version expected
+    # one word in the `property` field, and twenty-five key items write it
+    # `CANT_SELECT | CANT_TOSS` -- so 232 of the file's 256 rows parsed and the
+    # rest vanished without a word. Counting is the whole check: a regex that
+    # stops matching is invisible until something asks for the item it dropped.
+    from pathlib import Path
+    lines = (Path(t.source) / "data" / "items"
+             / "attributes.asm").read_text(errors="replace").splitlines()
+    rows = [line for line in lines if line.strip().startswith("item_attribute")]
+    matched = [line for line in rows if I.ITEM_ATTR.match(line)]
+    t.gt(len(rows), 250, "there are ~256 rows")
+    t.eq(len(matched), len(rows), "every one of them matches the pattern")
+
+
+@test("a combined property field does not hide the item behind it")
+def _(t):
+    a = I.attributes(str(t.source))
+    # These are the rows that were being dropped. What made them worth fixing
+    # rather than filtering out: `carrying` asks this table which pocket a name
+    # lives in, and a missing row silently answers "the item pocket".
+    for name in ("BICYCLE", "CARD_KEY", "COIN_CASE", "ITEMFINDER"):
+        t.true(name in a, f"{name} is parsed")
+        t.eq(a[name]["pocket"], I.KEY_ITEM_POCKET, f"{name} is a key item")
+    key_items = [n for n, v in a.items() if v["pocket"] == I.KEY_ITEM_POCKET]
+    t.gt(len(key_items), 20, "and there are ~22 of them, not zero")
+
+
+@test("the only item constants without an attribute row are the enum markers")
+def _(t):
+    a = I.attributes(str(t.source))
+    gd = t.gamedata
+    # `TM_` and `HM_` are the bases the TM/HM enum counts from, not items.
+    # Anything else missing here means a row was dropped.
+    missing = sorted(n for n in gd.items if n not in a and n != "NO_ITEM")
+    t.eq(missing, ["HM_", "TM_"], f"unexpected gaps: {missing}")
