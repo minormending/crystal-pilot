@@ -396,7 +396,7 @@ class CatchTask(TaskLifecycle):
         have = {i: q for i, q in self.r.balls() if q > 0}
         if not have:
             raise LookupError(
-                "there are no Poke Balls in the bag -- buy some at a Mart first"
+                "there are no Poke Balls in the bag -- run `shop balls` first"
             )
         if requested:
             try:

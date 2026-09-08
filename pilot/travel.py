@@ -7,6 +7,7 @@ anywhere in the game rather than from a hardcoded list of places.
 from __future__ import annotations
 
 from . import items as I
+from . import symbols as S
 from .battle import BattleEngine, BattlePolicy
 
 # How many separate items to spend on one Pokemon before giving up on the bag.
@@ -206,6 +207,122 @@ class Traveler:
             if after.hp >= after.max_hp:
                 healed += 1
         return healed
+
+    # --- the counter -------------------------------------------------------
+    def restock(self, names, want: int = 5) -> dict:
+        """Go and buy more of what has run out. -> a dict describing what happened.
+
+        `names` is what would do, in preference order -- ("POKE_BALL",
+        "GREAT_BALL") or the cures for a status. The nearest counter that
+        stocks *any* of them wins, on legs first and preference second, which
+        is why a caller lists them in the order it actually wants them.
+
+        The wallet is checked before the walk, not at the counter. Walking four
+        maps to discover you cannot afford one Potion is the same amount of
+        walking as affording it, and the answer is more useful before the trip
+        than after.
+        """
+        held = max((self.r.carrying(n) for n in names), default=0)
+        if held >= want:
+            return {"ok": True, "bought": 0, "held": held,
+                    "message": f"already carrying {held}"}
+        here = self.current_const()
+        found = self.w.nearest_shop_for(here, names)
+        if found is None:
+            return {"ok": False, "bought": 0, "held": held,
+                    "message": f"nothing sold anywhere stocks {', '.join(names)}"}
+        shop, item, route = found
+        need = want - held
+        unit = I.price(self.gd.root_str, item)
+        money = self.r.money()
+        if unit and money < unit:
+            return {"ok": False, "bought": 0, "held": held, "shop": shop,
+                    "item": item,
+                    "message": (f"a {item} costs {unit} and the wallet holds "
+                                f"{money}")}
+        # Buy what can be paid for rather than refusing the whole errand: three
+        # Potions is a better outcome than a walk that ends in a refusal.
+        afford = need if not unit else min(need, money // unit)
+        self.log(f"  shop: {shop} for {afford}x {item} "
+                 f"({len(route)} legs, {money} in the wallet)")
+        if shop != here and not self.travel_to(shop):
+            return {"ok": False, "bought": 0, "held": held, "shop": shop,
+                    "item": item, "message": f"could not reach {shop}"}
+        if not self.talk_to_clerk():
+            return {"ok": False, "bought": 0, "held": held, "shop": shop,
+                    "item": item, "message": "could not get the clerk's attention"}
+        before_money, before_held = self.r.money(), self.r.carrying(item)
+        refused = self.c.buy_from_clerk(self.gd.item_id(item), afford)
+        self.c.close_menus()
+        # **The money is the evidence.** Not the presses landing, and not the
+        # pocket, which lags a purchase the same way it lags a use -- measured
+        # on a heal, where wItems still listed a spent Potion until the pack
+        # closed. The wallet moved on the same read as the item arriving.
+        spent = before_money - self.r.money()
+        got = self.r.carrying(item) - before_held
+        if spent <= 0 and got <= 0:
+            why = refused or "the counter took nothing"
+            # Where else to try, which is the useful half of "not stocking it".
+            # Cherrygrove keeps Poké Balls behind the Mystery Egg flag, so its
+            # listed stock and its real stock differ for the whole early game --
+            # and the honest answer to that is a place name, not a shrug.
+            elsewhere = [s for s in self.w.shops_selling(item) if s != shop]
+            hint = f"; {elsewhere[0]} also lists it" if elsewhere else ""
+            return {"ok": False, "bought": 0, "held": before_held, "shop": shop,
+                    "item": item, "message": f"{shop} is {why}{hint}"}
+        return {"ok": True, "bought": got, "spent": spent, "shop": shop,
+                "item": item, "held": self.r.carrying(item),
+                "message": (f"bought {got}x {item} for {spent} at {shop}"
+                            if got else
+                            f"spent {spent} at {shop}; the bag has not caught up")}
+
+    def talk_to_clerk(self) -> bool:
+        """Stand at the counter and open the shop menu.
+
+        Not the nurse's approach, and the difference is the counter. A nurse
+        stands *behind* a desk you walk up to from below; a Mart clerk stands
+        behind a one-tile counter you talk *across*, and the tile between is a
+        wall. Measured in Cherrygrove: the clerk is at (1,3), (2,3) is the
+        counter, and the player has to be at (3,3) facing left. The tile below
+        the clerk is not walkable at all, so the nurse's "stand under it and
+        press up" reaches nothing and reports no counter.
+
+        So every tile that could see the clerk is tried -- the four adjacent
+        ones and the four two away along an axis, which is the across-a-counter
+        case -- nearest first, each facing toward the clerk. The confirmation
+        is the shop's own box, never the press landing.
+        """
+        here = self.current_const()
+        shop = self.w.shops.get(here)
+        if shop is None:
+            self.log(f"  shop: no counter recorded for {here}")
+            return False
+        cx, cy = shop["clerk"]
+        loc = self.r.location()
+        cm = self.n.collision
+        spots = []
+        for dist in (1, 2):
+            spots += [((cx, cy + dist), "up"), ((cx, cy - dist), "down"),
+                      ((cx + dist, cy), "left"), ((cx - dist, cy), "right")]
+        if cm is not None and cm.calibrated:
+            walkable = [s for s in spots if cm.walkable(*s[0])]
+            spots = walkable or spots
+        spots.sort(key=lambda s: abs(s[0][0] - loc.x) + abs(s[0][1] - loc.y))
+        for (sx, sy), facing in spots:
+            self.n.walk_to(sx, sy)
+            at = self.r.location()
+            if (at.x, at.y) != (sx, sy):
+                continue
+            self.n.face(facing)
+            self.s.tap("a")
+            self.s.tick(45)
+            if self.c.await_box(S.BOX_SHOP_MENU, tries=20):
+                return True
+            # Wrong tile, or the press opened somebody else's dialogue. Clear
+            # it before trying the next tile, or the next A answers this one.
+            self.c.advance_text(max_taps=20, quiet_frames=60)
+            self.c.close_menus()
+        return False
 
     def _carried(self, names) -> str | None:
         """The first of `names` actually in the bag, in the order given."""

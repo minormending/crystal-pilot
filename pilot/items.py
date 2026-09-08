@@ -23,6 +23,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from .gamedata import parse_consts
+
 # item_attribute price, held effect, parameter, property, pocket, field, battle
 ITEM_ATTR = re.compile(
     r"^\s*item_attribute\s+(-?\$?\w+)\s*,\s*\w+\s*,\s*(?:-?\$?\w+)\s*,"
@@ -42,6 +44,8 @@ MART_LABEL = re.compile(r"^(Mart[A-Za-z0-9_]*):\s*$")
 # called "4" -- and then the shopping errand's first candidate is a name no
 # item table has.
 MART_ITEM = re.compile(r"^\s*db\s+([A-Z_][A-Z0-9_]*)\s*$")
+# The `Marts:` pointer table, in MART_* constant order.
+MART_POINTER = re.compile(r"^\s*dw\s+(Mart[A-Za-z0-9_]*)\s*$")
 
 # constants/item_data_constants.asm. The names are the ones the attribute rows
 # use, which drop the `_POCKET` suffix the constants carry.
@@ -227,6 +231,62 @@ def mart_items(source_root: str) -> dict[str, tuple[str, ...]]:
     if current and items:
         out[current] = tuple(items)
     return out
+
+
+@lru_cache(maxsize=4)
+def mart_stock(source_root: str) -> dict[str, tuple[str, ...]]:
+    """MART_* constant -> the items that counter stocks.
+
+    Joins two files by position, which is how the disassembly itself joins
+    them: `Marts:` in data/items/marts.asm is a table of `dw MartCherrygrove`
+    pointers "in the order of the MART_* constants", and mart_constants.asm is
+    that order. So index 0 of the table is the first MART_* constant.
+
+    Keyed by the constant rather than the label because the constant is what a
+    map's `pokemart` line names, and the label is an implementation detail
+    sitting between them.
+    """
+    consts_path = Path(source_root) / "constants" / "mart_constants.asm"
+    marts_path = Path(source_root) / "data" / "items" / "marts.asm"
+    if not consts_path.exists() or not marts_path.exists():
+        return {}
+    # Two `const_def` blocks in that file: MARTTYPE_* then MART_*. Both restart
+    # at zero, and the prefixes keep them apart.
+    consts = {
+        k: v for k, v in parse_consts(consts_path).items()
+        if k.startswith("MART_") and not k.startswith("MARTTYPE_")
+    }
+    order: list[str] = []
+    for line in marts_path.read_text(errors="replace").splitlines():
+        m = MART_POINTER.match(line.split(";", 1)[0])
+        if m:
+            order.append(m.group(1))
+    stock = mart_items(source_root)
+    out: dict[str, tuple[str, ...]] = {}
+    for const, index in consts.items():
+        if index < len(order):
+            found = stock.get(order[index])
+            if found:
+                out[const] = found
+    return out
+
+
+def sold_at(source_root: str, marts) -> tuple[str, ...]:
+    """Everything the given MART_* constants stock between them, deduplicated.
+
+    A map can hold more than one counter -- Cherrygrove's clerk has two stock
+    lists behind an event flag, and Goldenrod's floors have four -- and which
+    one a visit gets depends on story progress this cannot know. So the union
+    is what a *destination* is chosen on, and the counter itself is the
+    authority on what is actually there: `buy_from_clerk` drives the real list.
+    """
+    table = mart_stock(source_root)
+    seen: list[str] = []
+    for const in marts:
+        for name in table.get(const, ()):
+            if name not in seen:
+                seen.append(name)
+    return tuple(seen)
 
 
 # --- the questions the pilot actually asks ---------------------------------

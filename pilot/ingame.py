@@ -183,7 +183,8 @@ class InGameMenu:
                            self.p.session.rb("wTimeOfDay"))
         title = "HUNT WHAT?" if kind == "hunt" else "CATCH WHAT?"
         if kind == "catch" and not self.p.reader.balls():
-            self._show("CATCH", ["no Poke Balls in the bag", "buy some at a Mart"])
+            self._show("CATCH", ["no Poke Balls in the bag",
+                                 "the SHOP errand will go and buy some"])
             return
         if not found:
             self._show(title, ["nothing wild appears here",

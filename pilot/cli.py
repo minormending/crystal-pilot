@@ -164,6 +164,13 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--no-route", action="store_true",
                    help="stop at Elm's lab instead of walking to Route 29")
 
+    sh = sub.add_parser("shop",
+                        help="walk to the nearest Mart and buy more of something")
+    sh.add_argument("item", nargs="?", default=None,
+                    help="what to buy: an item name, or 'balls'/'potions'. "
+                         "Default: balls if the bag has none, else potions.")
+    sh.add_argument("--want", type=int, default=5,
+                    help="how many to end up carrying (default 5)")
     sub.add_parser("status", help="print party, location and nearest Pokemon Center")
 
     p = sub.add_parser("play", help="playable window with inline task dispatch")
@@ -570,6 +577,14 @@ def cmd_heal(pilot, args) -> int:
 
 
 
+def cmd_shop(pilot, args) -> int:
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 4,
+                                    max_wall_seconds=args.timeout))
+    result = pilot.shop(item=args.item, want=args.want)
+    print(result.render())
+    return 0 if result.ok else 1
+
+
 def cmd_catch(pilot, args) -> int:
     pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 12,
                                     max_wall_seconds=args.timeout))
@@ -658,7 +673,7 @@ STANDALONE = {
 IN_GAME = {
     "status": cmd_status, "hunt": cmd_hunt, "battle": cmd_battle,
     "capture": cmd_capture, "heal": cmd_heal, "catch": cmd_catch,
-    "trainers": cmd_trainers, "grind": cmd_grind,
+    "trainers": cmd_trainers, "grind": cmd_grind, "shop": cmd_shop,
 }
 
 

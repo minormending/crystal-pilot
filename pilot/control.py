@@ -613,30 +613,38 @@ class Control:
         return False
 
     # --- the counter -------------------------------------------------------
-    def buy_from_clerk(self, item_id: int, count: int = 1) -> bool:
+    def buy_from_clerk(self, item_id: int, count: int = 1) -> str | None:
         """Buy `count` of an item from the clerk already being talked to.
 
-        Five boxes, each confirmed by its shape. The caller is responsible for
-        standing in front of a clerk and pressing A; this drives what appears.
+        Returns None when it bought, and otherwise *why not* -- because the
+        reasons are different problems and a bare False makes them one. The one
+        that actually happens is "this counter is not stocking it": Cherrygrove
+        keeps Poké Balls behind a story flag, so its listed stock and its real
+        stock differ until the Mystery Egg has been delivered. "The counter took
+        nothing" sends somebody looking for a driving bug; "not stocking
+        POKE_BALL today" sends them to Violet.
+
+        Five boxes, each confirmed by its shape. The caller stands in front of
+        the clerk and presses A; this drives what appears.
 
         One press at a time rather than a jump to a quantity, deliberately. The
         quantity box takes UP to raise the count and it *wraps* at ninety-nine,
         so an overshoot does not stop at the top -- it buys ninety-nine of
-        something. Counting presses up from one is the only version where being
-        wrong costs one item rather than the whole wallet.
+        something. Counting up from one is the only version where being wrong
+        costs one item rather than the whole wallet.
         """
         if not self.await_box(S.BOX_SHOP_MENU, tries=30):
-            return False
+            return "the shop menu never came up"
         if not self.drive_menu_cursor(1, 3):        # BUY
-            return False
+            return "could not reach BUY"
         self.s.tap("a")
         if not self.await_box(S.BOX_SHOP_LIST, tries=30):
-            return False
+            return "the stock list never came up"
         if not self.reach_item(item_id):
-            return False
+            return "not stocking it today"
         self.s.tap("a")
         if not self.await_box(S.BOX_SHOP_HOW_MANY, tries=30):
-            return False
+            return "the quantity box never came up"
         for _ in range(max(0, count - 1)):
             self.s.tap("up", hold=4, gap=8)
             self.s.tick(6)
@@ -644,11 +652,11 @@ class Control:
         # "That'll be N. OK?" is a real YesNoBox, so the hook-backed answer
         # applies and the cursor is driven rather than assumed.
         if not self.await_box(S.BOX_SHOP_CONFIRM, tries=30):
-            return False
+            return "the confirmation never came up"
         if not self.answer_yes_no(True):
-            return False
+            return "could not answer the confirmation"
         self.advance_text(max_taps=30, quiet_frames=60)
-        return True
+        return None
 
     # --- start menu / saving ----------------------------------------------
     def open_start_menu(self) -> None:

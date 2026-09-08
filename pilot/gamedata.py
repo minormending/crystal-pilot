@@ -34,7 +34,7 @@ def _rgbds_int(raw: str) -> int:
     return int(raw, 0)
 
 
-def _parse_consts(path: Path, first_block_only: bool = False) -> dict[str, int]:
+def parse_consts(path: Path, first_block_only: bool = False) -> dict[str, int]:
     """Reads an rgbds `const_def`/`const` enum block into {NAME: value}.
 
     `first_block_only` stops at a second `const_def`. That matters for
@@ -109,20 +109,20 @@ class GameData:
                     "Point --source at a pokecrystal disassembly checkout."
                 )
         self.species: dict[str, int] = {
-            k: v for k, v in _parse_consts(pk, first_block_only=True).items()
+            k: v for k, v in parse_consts(pk, first_block_only=True).items()
             if not k.startswith("NUM_")
         }
         self.species_by_id: dict[int, str] = {v: k for k, v in self.species.items()}
         # ANIM_* constants continue the same enum past the real moves; keep the
         # name lookup to actual moves so ids cannot be shadowed.
         self.moves: dict[str, int] = {
-            k: v for k, v in _parse_consts(mv).items()
+            k: v for k, v in parse_consts(mv).items()
             if not k.startswith(("NUM_", "ANIM_"))
         }
         self.moves_by_id: dict[int, str] = {v: k for k, v in self.moves.items()}
 
         self.items: dict[str, int] = {
-            k: v for k, v in _parse_consts(itemc, first_block_only=True).items()
+            k: v for k, v in parse_consts(itemc, first_block_only=True).items()
             if not k.startswith("NUM_")
         }
         self.items_by_id: dict[int, str] = {v: k for k, v in self.items.items()}
