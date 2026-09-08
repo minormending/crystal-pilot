@@ -27,6 +27,22 @@ class Traveler:
         self.log = log
         # Which route the last `heal_up` took: "bag", "walk", or None.
         self.healed_via: str | None = None
+        # Legs the *game* refuses, not legs the pathfinder cannot see.
+        #
+        # Kept on the Traveler rather than inside one `travel_to` call, because
+        # the thing it is for happens across calls: "where is the nearest place
+        # I can heal?" asked twice should not walk into the same closed gate
+        # twice. Keyed by leg -- (from, kind, to) -- because "shut from here" is
+        # what was measured, and the same door may open from the other side.
+        self.written_off: set[tuple[str, str, str]] = set()
+        # ...and thrown away the moment a badge is won, because a badge is
+        # precisely what opens one of these. Nothing says which badge opened
+        # which gate, and asking again is cheaper than guessing wrong forever.
+        self._written_off_at: int = -1
+        # What the game said when it last turned the walk back, if anything.
+        # A refusal with words on the screen is somebody talking, and that is a
+        # different answer from a tile somebody is standing on.
+        self.turned_back: str = ""
         # Anything encountered while travelling is an obstacle, not an
         # opportunity -- we are usually travelling *because* HP is low.
         self._flee = BattleEngine(session, reader, control, gamedata,
@@ -72,31 +88,79 @@ class Traveler:
                 return False
         return self.current_const() == target
 
-    def travel_to(self, dest_const: str, max_hops: int = 14) -> bool:
+    def _forget_write_offs_on_a_badge(self) -> None:
+        """Drop the write-offs if a badge has been won since they were made."""
+        badges = self.r.badge_count()
+        if badges != self._written_off_at:
+            if self.written_off and badges > self._written_off_at >= 0:
+                self.log(f"  travel: {badges} badges now; re-opening "
+                         f"{len(self.written_off)} written-off leg(s)")
+            self.written_off = set()
+            self._written_off_at = badges
+
+    def travel_to(self, dest_const: str, max_hops: int = 14,
+                  max_refusals: int = 24) -> bool:
         """Walk to `dest_const` using the world graph, re-planning after each hop.
 
-        Hops that turn out not to be walkable are remembered and excluded, so the
-        search falls back to another way round instead of retrying the same
-        impassable link.
+        A leg that turns out not to be walkable is written off and the route
+        asked again without it, so the search falls back to another way round
+        instead of retrying the same wall.
+
+        **A refused leg is not a leg walked**, which is the fix that made this
+        work for places the pilot cannot reach directly. `max_hops` counts
+        *arrivals*; refusals have their own generous bound, because a refusal
+        costs one crossing attempt rather than a walk, and the write-off set only
+        grows over a finite graph so the search terminates on its own. Before
+        this, every refusal spent one of the fourteen legs and a walk ran out of
+        budget somewhere it had never needed to be.
+
+        A refusal also gets *read*. When every direction is blocked, that is
+        what a running script looks like from outside -- somebody is talking --
+        and the words are on the screen until something presses them away. So
+        they are kept in `turned_back` and reported, because "could not leave
+        ROUTE_32 going up" blames the pilot's walking for a rule of the game.
         """
-        failed: set[tuple[str, str, str]] = set()
-        for _ in range(max_hops):
+        self._forget_write_offs_on_a_badge()
+        self.turned_back = ""
+        arrivals = refusals = 0
+        while arrivals < max_hops and refusals < max_refusals:
             here = self.current_const()
             if here == dest_const:
                 return True
             path = self.w.route_to(here, lambda c: c == dest_const, max_depth=8,
-                                   avoid_hops=failed)
+                                   avoid_hops=self.written_off)
             if path is None:
-                self.log(f"  travel: no route {here} -> {dest_const}"
-                         + (" (after ruling out impassable links)" if failed else ""))
+                said = f" -- {self.turned_back}" if self.turned_back else ""
+                ruled = (f" (after ruling out {len(self.written_off)} "
+                         f"impassable leg(s))" if self.written_off else "")
+                self.log(f"  travel: no route {here} -> {dest_const}{ruled}{said}")
                 return False
             kind, target, warp = path[0]
-            if not self.walk_hop(kind, target, warp):
-                if self.current_const() == here:
-                    self.log(f"  travel: {here} -> {target} is not walkable; "
-                             f"looking for another way")
-                    failed.add((here, kind, target))
-        return self.current_const() == dest_const
+            if self.walk_hop(kind, target, warp):
+                arrivals += 1
+                continue
+            if self.current_const() != here:
+                # Somewhere unexpected rather than refused. That is a leg walked
+                # and re-planning from the new place is the right answer.
+                arrivals += 1
+                continue
+            refusals += 1
+            # Read before anything else presses it away. `walk_hop` has already
+            # run scripts, so this is the last moment the words are there.
+            said = self.c.screen_said(2)
+            if said:
+                self.turned_back = f"{here} -> {target}: {said}"
+                self.log(f"  travel: turned back leaving {here} -- {said}")
+            else:
+                self.log(f"  travel: {here} -> {target} is not walkable; "
+                         f"looking for another way")
+            self.written_off.add((here, kind, target))
+        if self.current_const() == dest_const:
+            return True
+        why = "too many refused legs" if refusals >= max_refusals else "too many legs"
+        said = f" -- {self.turned_back}" if self.turned_back else ""
+        self.log(f"  travel: gave up short of {dest_const} ({why}){said}")
+        return False
 
     # --- healing -----------------------------------------------------------
     def party_needs_healing(self) -> bool:
@@ -511,14 +575,25 @@ class Traveler:
         """
         origin = self.current_const()
         origin_loc = self.r.location()
-        path = self.w.nearest_pokecenter(origin)
+        # Legs the game has already refused are excluded from the search, not
+        # discovered again on the walk. The nearest Center by legs is not
+        # always one that can be reached, and a zero-cost wall beats every real
+        # answer in a shortest-path search.
+        self._forget_write_offs_on_a_badge()
+        path = self.w.nearest_pokecenter(origin, avoid_hops=self.written_off)
         if path is None:
-            self.log(f"  heal: no Pokemon Center reachable from {origin}")
+            said = f" -- {self.turned_back}" if self.turned_back else ""
+            self.log(f"  heal: no Pokemon Center reachable from {origin}{said}")
             return False
         center = path[-1][1]
         self.log(f"  heal: {origin} -> {center} ({len(path)} hops)")
         if not self.travel_to(center):
-            self.log("  heal: could not reach the Center")
+            # Who turned it back, when the game said so. "could not reach the
+            # Center" blames the pilot's walking for a rule of the game.
+            if self.turned_back:
+                self.log(f"  heal: could not reach the Center -- {self.turned_back}")
+            else:
+                self.log("  heal: could not reach the Center")
             return False
         if not self.talk_to_nurse():
             return False

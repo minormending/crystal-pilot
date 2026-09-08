@@ -105,7 +105,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py pilot/screen.py pilot/items.py pilot/advice.py @ 53ff1902e8f5 -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py pilot/screen.py pilot/items.py pilot/advice.py @ 12af0d601e62 -->
 
 Roughly 11,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -299,11 +299,17 @@ where it started.
 
 ### `state.py` — what the game is doing right now
 
-<!-- covers: pilot/state.py @ 9d0499a24ea3 -->
+<!-- covers: pilot/state.py @ c62686921bb6 -->
 
 Typed reads: location, party, the battle, both readable bag pockets, the wallet,
-and the game's event flags. Every read goes through a symbol, so nothing here
-contains a bare address.
+the badge count, and the game's event flags. Every read goes through a symbol,
+so nothing here contains a bare address.
+
+`badge_count()` is a population count over two bitfields rather than a stored
+number, because the game does not keep one. It is read for exactly one purpose:
+**a badge is the thing that opens a route the game was refusing**, so it is what
+invalidates `travel_to`'s written-off legs — see
+[Moving around](#6-moving-around).
 
 `screen()` is the door onto `screen.py`, and it takes a *fresh* read every
 time rather than caching one. That is the point: it gets asked when something
@@ -771,7 +777,7 @@ listed in the README's limits for that reason.
 
 ## 5a. The bag
 
-<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 7ceae9635d01 -->
+<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 5e0cd77bbccb -->
 
 The pilot could throw a ball and do nothing else with the pack. Using an item on
 a party member is the thing everything else here depends on: healing without a
@@ -982,7 +988,7 @@ ended up carrying half a sentence from a box already on its way out.
 
 ## 6. Moving around
 
-<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ 0db0dfe02933 -->
+<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ 06f14161e2d4 -->
 
 Five layers, each built on the one below. The top one is a fan rather than a
 single answer, because "go somewhere and do a thing" is three different things.
@@ -1090,6 +1096,48 @@ walk — the mobile port has to go and press A to find out.
 predicate-first-match, which is the right shape for "the nearest Pokémon Center"
 and the wrong shape for ranking a list: asking it about twenty-two counters is
 twenty-two walks over the same graph.
+
+</details>
+
+<details>
+<summary><b>Advanced detail:</b> a leg the game refuses, which is not a leg the map forbids</summary>
+
+**A route is shortest by legs and knows nothing about a leg being hard.** Route
+29's connection struct says there is a map to the north, and there is — Route
+46 — but the pilot cannot get up there. A gate south of Violet City turns the
+walk back *in words* until Falkner's badge is won. Both are ordinary edges to a
+pathfinder, and both look like a bug in the walking from outside.
+
+So `travel_to` writes such a leg off and asks `route_to` again without it, via
+the `avoid_hops` set both searches take. It terminates on its own: the set only
+grows, every failure removes an edge from a finite graph, and when none is left
+the message says so.
+
+Three things about the bookkeeping, each of which was wrong first:
+
+- **A refused leg is not a leg walked.** `max_hops` counts *arrivals*;
+  refusals have their own generous bound. Charged together, every refusal spent
+  one of the fourteen legs and the walk gave up somewhere it had never needed
+  to be — measured in the mobile port on a walk to DARK CAVE, which is two legs
+  away through a route the pilot cannot climb.
+- **A refusal gets read.** When every direction is blocked, that is what a
+  running script looks like from outside: somebody is talking, and the words are
+  on the screen until something presses them away. They are kept in
+  `turned_back` and reported, because *"could not leave ROUTE_32 going up"*
+  blames the pilot's walking for a rule of the game. A blank screen leaves
+  `turned_back` empty rather than inventing a reason — that refusal really is a
+  tile somebody is standing on, and re-asking is how it gets walked around.
+- **A won badge re-opens every write-off.** The set lives on the `Traveler`, not
+  inside one call, because the question it exists for — *where is the nearest
+  place I can heal?* — gets asked over and over. It is keyed on the badge count
+  at the time and thrown away when that changes, because a badge is precisely
+  what opens one of these gates and nothing records which badge opened which.
+  Asking again is cheaper than guessing wrong forever.
+
+`nearest_pokecenter` takes the same set, and the reason is worth stating: the
+nearest Center *by legs* need not be reachable. With a refused gate between a
+route and its own Center, the shortest answer is a wall at zero cost, which
+beats every real answer in a shortest-path search.
 
 </details>
 
@@ -1760,7 +1808,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ b0c783801375 -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ c522c650c2cc -->
 
 ```bash
 ./run-tests                      # everything
@@ -1769,7 +1817,7 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-299 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+306 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
 **126 of them need nothing but the repository**, which is what CI has: the
@@ -1781,10 +1829,10 @@ were decisions about a game state rather than anything needing a cartridge. The
 real readers, the real symbol-table parser, the real capture logic and the
 navigator's fallbacks all run against it.
 
-The other 173 are genuine integration tests — walking, the intro, crossing maps,
+The other 180 are genuine integration tests — walking, the intro, crossing maps,
 a real save — and skip themselves without a ROM rather than failing.
 
-**`--self-check` re-introduces twenty-three bugs one at a time** and checks the test
+**`--self-check` re-introduces twenty-six bugs one at a time** and checks the test
 meant to catch each one goes red, reverting every mutation afterwards. That is
 the only thing which proves a *test* works: a test written alongside a fix is
 written against a codebase where the bug is already gone, so it has never been

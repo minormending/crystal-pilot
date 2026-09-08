@@ -267,6 +267,38 @@ MUTATIONS = [
         "        run: ruff check pilot tests",
         "lint the same scope",
     ),
+    (
+        # The bug the mobile port measured and this one shared: DARK CAVE is
+        # two legs away through a route the pilot cannot climb, and every
+        # refusal spent one of the fourteen legs until the walk gave up
+        # somewhere it had never needed to be.
+        "a refused leg is charged against the walk's arrival budget again",
+        "pilot/travel.py",
+        """            refusals += 1""",
+        """            arrivals += 1""",
+        "arrival budget",
+    ),
+    (
+        # The words are on the screen until something presses them away, and
+        # `walk_hop` has already run scripts by this point -- so reading late
+        # reads nothing, which is how the first version of this failed.
+        "a refusal stops being read, so nobody says who turned the walk back",
+        "pilot/travel.py",
+        """            said = self.c.screen_said(2)""",
+        '''            said = ""''',
+        "turned the walk back",
+    ),
+    (
+        # A badge is the thing that opens one of these gates, and nothing
+        # records which badge opened which. Keeping the write-offs across one
+        # makes a route shut forever.
+        "a won badge no longer re-opens the legs the game used to refuse",
+        "pilot/travel.py",
+        """            self.written_off = set()
+            self._written_off_at = badges""",
+        """            self._written_off_at = badges""",
+        "re-opens every written-off leg",
+    ),
 ]
 
 

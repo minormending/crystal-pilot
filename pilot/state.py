@@ -281,6 +281,25 @@ class GameStateReader:
         byte = self.s.rb(self.s.sym.addr("wEventFlags") + index // 8)
         return bool(byte & (1 << (index % 8)))
 
+    def badge_count(self) -> int:
+        """How many badges the player has, across both regions.
+
+        A bitfield per region -- `wJohtoBadges` at `d857` and `wKantoBadges`
+        immediately after it -- so this is a population count rather than a
+        stored number, which the game does not keep.
+
+        Read for one reason: **a badge is the thing that opens a route the game
+        was refusing.** A gate that turns the walk back until Falkner's badge is
+        won looks exactly like an impassable edge, so `travel_to` writes such a
+        leg off -- and has to un-write it when a badge is won, because nothing
+        says which badge opened which gate and guessing is worse than asking
+        again. The count is the whole signal needed for that: it only goes up,
+        and any increase means something somewhere may have opened.
+        """
+        johto = self.s.rb("wJohtoBadges")
+        kanto = self.s.rb("wKantoBadges")
+        return johto.bit_count() + kanto.bit_count()
+
     def money(self) -> int:
         """How much the player is carrying.
 

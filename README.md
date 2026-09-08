@@ -677,7 +677,7 @@ slot is one step backwards that the next job overwrites.
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-299 tests. Most of them exist because of a specific bug that shipped and was
+306 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -705,9 +705,9 @@ drive a real emulator skip themselves. The runner says so rather than reporting
 a bare pass:
 
 ```
-126 passed, 173 skipped, 0 failed  (1.5s)
+126 passed, 180 skipped, 0 failed  (1.5s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (173 tests need a ROM built from the disassembly)
+  (180 tests need a ROM built from the disassembly)
 ```
 
 That used to be 20 of 108, and the 20 only read data files — the badge covered
@@ -741,7 +741,8 @@ caught  a party list that will not drive is reported as a blackout
 caught  a forced switch presses A without checking the cursor arrived
 caught  the speed command is undone by the reset after every command
 caught  the linter stops seeing the tools it never used to see
-23 caught, 0 missed
+caught  a refused leg is charged against the walk's arrival budget again
+26 caught, 0 missed
 ```
 
 Each is a bug that was live in this repository rather than a hypothetical. They

@@ -248,9 +248,20 @@ class World:
                 q.append((target, hop))
         return None
 
-    def nearest_pokecenter(self, start_const: str, max_depth: int = 6):
+    def nearest_pokecenter(self, start_const: str, max_depth: int = 6,
+                           avoid_hops=None):
+        """The nearest Pokemon Center the *walk* can actually get to.
+
+        `avoid_hops` is passed through for one reason worth stating: the nearest
+        Center by legs is not always one that can be reached. A gate the game
+        refuses until a badge is won sits between Route 32 and its own Center,
+        so the shortest answer is a wall -- and the next one, one leg the other
+        way, is open. A search that does not know which legs have already turned
+        the walk back keeps returning the wall.
+        """
         return self.route_to(
-            start_const, lambda c: c.endswith("POKECENTER_1F"), max_depth=max_depth
+            start_const, lambda c: c.endswith("POKECENTER_1F"),
+            max_depth=max_depth, avoid_hops=avoid_hops,
         )
 
     def routes_from(self, start_const: str, targets, max_depth: int = 8,
