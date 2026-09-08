@@ -38,8 +38,11 @@ Where the two differ, the difference is almost always [section 4](#4-hooks-the-g
 3. [The layers, bottom up](#3-the-layers-bottom-up)
 4. [Hooks: the game asks, we answer](#4-hooks-the-game-asks-we-answer)
 5. [Battles](#5-battles)
+   · [The bag](#5a-the-bag)
 6. [Moving around](#6-moving-around)
 7. [The tasks](#7-the-tasks)
+   · [Where to go instead](#7b-where-to-go-instead)
+   · [One engine, many titles](#7c-one-engine-many-titles)
 8. [Three ways to drive it](#8-three-ways-to-drive-it)
    · [Slots, and undoing a job](#8a-slots-and-undoing-a-job)
 9. [Recording, checkpoints and backups](#9-recording-checkpoints-and-backups)
@@ -101,9 +104,9 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ eb6256d31bd1 -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 82a16a7262ef -->
 
-Roughly 7,000 lines of Python, in layers. Arrows point from a layer to what it
+Roughly 9,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
 
 ```mermaid
@@ -118,18 +121,21 @@ flowchart TD
         grind["grind"]
         hunt["hunt · catch · search"]
         sweep["trainers"]
+        errands["shop · take · moment"]
     end
     subgraph think["deciding"]
         battle["battle.py<br/>plays out one battle"]
         control["control.py<br/>drives menus and text"]
-        travel["travel.py<br/>cross-map trips"]
+        travel["travel.py<br/>trips · healing · shopping"]
+        advice["advice.py<br/>where to go instead"]
         nav["nav.py"]
         world["world.py"]
         coll["collision.py"]
     end
     subgraph read["knowing"]
         state["state.py"]
-        gamedata["gamedata.py · wild.py"]
+        gamedata["gamedata.py · wild.py · items.py"]
+        titles["titles/<br/>which cartridge is this"]
         sym["symbols.py"]
     end
     sess["session.py<br/>PyBoy · hooks · input"]
@@ -137,6 +143,7 @@ flowchart TD
 
     front --> facade
     facade --> tasks
+    facade --> titles
     tasks --> think
     think --> read
     read --> sess
@@ -147,26 +154,56 @@ flowchart TD
 | --- | --- |
 | `session.py` | "run frames", "read memory", "what did the game just do?" |
 | `symbols.py` | "where does `wPartyCount` live, and in which bank?" |
-| `state.py` | "what is happening right now?" |
+| `state.py` | "what is happening right now?", "what is in the bag?" |
 | `gamedata.py`, `wild.py` | "what is this species called?", "what appears here?" |
+| `items.py` | "what does a Potion cost, fix, and which pocket is it in?" |
+| `titles/` | "which cartridge is this, and where does its game open?" |
 | `collision.py` | "can I stand there, and how do I get there?" |
 | `nav.py` | "walk to this tile", "leave by this edge" |
-| `world.py` | "which map is west of here, and where are its doors?" |
-| `travel.py` | "get to Cherrygrove and heal, then come back" |
-| `control.py` | "answer this text box / pick this menu entry" |
+| `world.py` | "which map is west of here, where are its doors, its counter, its item balls?" |
+| `travel.py` | "get to Cherrygrove and heal, then come back", "go and buy five balls" |
+| `advice.py` | "this grind is slow — then where should I go?" |
+| `control.py` | "answer this text box / pick this menu entry / use this item" |
 | `battle.py` | "play out this battle under this policy" |
-| `tasks/` | "grind to 12", "catch a Sentret", "sweep this route" |
+| `tasks/` | "grind to 12", "catch a Sentret", "sweep this route", "buy potions" |
 | `pilot.py` | assembles all of it and exposes the tasks |
+
+Three of those are newer than the rest and exist for one reason each.
+
+`items.py` is the bag's half of `gamedata.py`. It answers three questions that
+look like one and are not: what an item *costs*, how much HP it puts *back*, and
+which status it *clears*. A Potion answers the first two and not the third; an
+Antidote the first and third. Reading one table for all of it is how a poisoned
+party walks past a Full Heal it is already carrying.
+
+`advice.py` composes two things that were already known and never put together:
+what a route's grass tops out at, and which maps the graph can reach from here.
+Neither answers the question a slow grind raises, which is *then where should I
+go*.
+
+`titles/` holds the handful of facts that are neither in the symbol file nor in
+the data files — which tile Elm's aide stands on, which ball is Cyndaquil, the
+doorways out of the bedroom. They are facts about *Crystal's script* rather than
+about the Gen 2 engine, and as module constants inside `bootstrap.py` nothing
+could say so.
 
 <details>
 <summary><b>Advanced detail:</b> two boundaries that carry their weight</summary>
 
 **`battle.py` takes a policy, not a decision.** `BattlePolicy` is a dataclass —
-`flee_below`, `always_flee`, `allow_evolution`, `learn_new_moves`,
-`switch_to_target`, `fight_if_cornered` — and the engine plays out one battle
-under it. A grind wants to win; a hunt wants to leave; a catch wants to weaken
-and stop. All three use the same engine with different policies rather than
-three battle loops that drift apart.
+`flee_below`, `heal_below`, `use_items`, `always_flee`, `allow_evolution`,
+`learn_new_moves`, `switch_to_target`, `fight_if_cornered` — and the engine plays
+out one battle under it. A grind wants to win; a hunt wants to leave; a catch
+wants to weaken and stop. All three use the same engine with different policies
+rather than three battle loops that drift apart.
+
+Two of those fields are not independent, and the order they are read in is the
+feature: `heal_below` defaults to 0.45 and `flee_below` to 0.35, and the bag is
+checked *first*. So a fight that can still be won gets a Potion and gets won,
+and the flee is what answers an empty bag rather than what answers low HP. Set
+the heal threshold at or below the flee threshold and it becomes dead code,
+because the flee returns first — there is a test that says so, since the two
+numbers look independent and are not.
 
 **Every task returns the same shape.** `TaskResult` carries
 `status` (`completed | timeout | blocked | aborted | error`), a message, a stats
@@ -209,20 +246,61 @@ during a task is the difference between 470× real time and unusable.
 
 ### `symbols.py` — where things live
 
-<!-- covers: pilot/symbols.py @ 7c7dd58cd379 -->
+<!-- covers: pilot/symbols.py @ 27d952cbe007 -->
 
 Parses the `.sym` file, resolves names to bank-qualified addresses, and holds the
 struct offsets (`PARTY_STRUCT`, the party-mon field layout, and so on).
 
 It also owns `HOOK_ROUTINES`, the table of what to hook — see
-[section 4](#4-hooks-the-game-asks-we-answer).
+[section 4](#4-hooks-the-game-asks-we-answer) — and the **box shapes**, which are
+how the pilot tells one menu from another.
+
+<details>
+<summary><b>Advanced detail:</b> a box is a shape, not "something is open"</summary>
+
+The cursor keeps its previous value between boxes, so both "a window is open"
+(`wWindowStackSize`) and "the cursor is somewhere" (`wMenuCursorY`) are true of
+the *wrong* box. What identifies one is how many rows it has
+(`wMenuDataItems`) and which screen row it starts at (`wMenuBorderTopCoord`) —
+so `BOX_PACK` is `(5, 1)`, `BOX_ITEM_USE` is `(4, 3)`, and so on.
+
+Three of them share a signature: `BOX_BATTLE_ITEM`, `BOX_SHOP_CONFIRM` and the
+learn-move prompt are all two rows at row 7. That is safe only because the
+contexts cannot overlap — a shop box exists only while a shop is being driven —
+and it is a claim the callers have to keep rather than a property the shape
+gives them.
+
+One box is matched on half its shape. `BOX_PARTY_PICK` is `(None, 0)`, because
+its row count is not a fact about the party: measured on the same
+one-Pokémon party, the *field* pack's party list reports four rows and the
+*battle* pack's reports two. Two menu headers for one question. Matching the
+count made healing work on the map and fail in a fight, which is the half where
+it matters.
+
+`FIELD_PACK_HOLD` is here too, and it is a measurement rather than a
+preference: A on the field pack's item list is swallowed at a hold of 7 frames
+and lands at 8. The ordinary tap is 6. The battle pack takes 6, measured the
+same way — so it is the field pack's quirk and not the pack's, and
+`throw_ball` is deliberately left alone. The D-pad in that same list wants the
+opposite: at a hold of 8 a DOWN press auto-repeats and the cursor arrives back
+where it started.
+
+</details>
 
 ### `state.py` — what the game is doing right now
 
-<!-- covers: pilot/state.py @ 84095bcbf982 -->
+<!-- covers: pilot/state.py @ 31084d900d4c -->
 
-Typed reads: location, party, the battle, the bag. Every read goes through a
-symbol, so nothing here contains a bare address.
+Typed reads: location, party, the battle, both readable bag pockets, the wallet,
+and the game's event flags. Every read goes through a symbol, so nothing here
+contains a bare address.
+
+There is **one pocket reader**, not one per pocket: every pocket has the same
+shape, a count of *kinds* followed by (item, quantity) pairs. `balls()` and
+`items()` are both `pocket()` with a different argument, and `carrying(name)`
+saves a caller from knowing which pocket a name lives in — the one genuinely
+arbitrary fact about the bag, since nothing about "POKE_BALL" or "BERRY_JUICE"
+says which one it is in.
 
 <details>
 <summary><b>Advanced detail:</b> the signal that is not what it looks like</summary>
@@ -238,15 +316,45 @@ bag — but the one mid-battle `ball_count` guard in `_try_capture` cannot fire,
 so running dry surfaces as a throw that cannot find a ball and the throw budget
 is what actually ends the loop.
 
+**Nor does `wItems` settle until the pack closes.** The same fact about the
+other pocket, and measured here rather than inherited: a Potion used on the map
+moved the HP immediately while `wItems` still listed it, and the count only came
+down once the pack was shut. So **HP and the status byte are the evidence for a
+use, and the bag is corroboration.** That distinction is not pedantry — at full
+HP the game takes every press, says the item would have no effect and spends
+nothing, so a press-counting caller calls that a heal.
+
+**Only two pockets are read, and the other two are refused rather than
+guessed.** A key item has no quantity byte — the addresses prove it, `wKeyItems`
+is `d8bd` and `wNumBalls` is `d8d7`, twenty-six bytes later, which is
+`MAX_KEY_ITEMS` plus a terminator and not twice that. Handing it to the pair
+reader interleaves ids with ids and reports half the pocket as quantities of the
+other half, in numbers that look right. TM/HM is a bitfield rather than a list
+at all.
+
+**The wallet is three bytes, big-endian, plain binary** — not the packed BCD Gen
+1 used. `bigdt MAX_MONEY` in `engine/events/money.asm` is the tell, and
+MAX_MONEY is 999,999, which needs twenty bits and so cannot be BCD in three
+bytes. Decoded as BCD, ¥1,000 reads as ¥232.
+
+**`event_done` answers "cannot tell" separately from "no".** A flag this build
+does not name returns `None` rather than `False`, because the two lead to
+different decisions: "already taken" skips a walk and "cannot tell" has to make
+it.
+
 </details>
 
-### `gamedata.py`, `wild.py` — what the cartridge knows
+### `gamedata.py`, `wild.py`, `items.py` — what the cartridge knows
 
-<!-- covers: pilot/gamedata.py pilot/wild.py @ 67d427df5017 -->
+<!-- covers: pilot/gamedata.py pilot/wild.py pilot/items.py @ fad0d7136416 -->
 
-Species names, move power and type, map names, walkability tables, and which
-wild Pokémon appear where — all parsed out of the **pokecrystal source tree**,
-so they cannot drift from the ROM being driven.
+Species names, move power and type, map names, walkability tables, event flag
+indices, which wild Pokémon appear where, and everything about the bag — all
+parsed out of the **pokecrystal source tree**, so they cannot drift from the ROM
+being driven.
+
+Three files because they answer three unrelated kinds of question. `gamedata.py`
+is names and ids; `wild.py` is encounter tables; `items.py` is the bag.
 
 <details>
 <summary><b>Advanced detail:</b> time of day is part of the answer</summary>
@@ -257,6 +365,54 @@ running at hundreds of times real time crosses those boundaries mid-run — so a
 test that passes in the morning fails at night unless the species it looks for
 is one that appears around the clock. That bit the suite once and is why the
 parameter exists.
+
+`hours(source, map)` is the other two thirds of that. Both readers above take a
+*single* time of day and the pilot has only ever passed them one — the hour it
+is now — so what it knew about the grass it was standing in was one third of
+what the cartridge says. Reading all three blocks is what lets a picker say
+*PIDGEY is here in the morning, not now* instead of dropping a species from the
+offered list in silence, which is the one change to that list nobody makes and
+nothing explains.
+
+`level_range(source, map)` reads the level byte that has been sitting beside
+every species since `species_on` was written and going unread. It returns
+`None`, not `(0, 0)`, for a map with no table: "no wild Pokémon here" and "wild
+Pokémon at level zero" are different claims, and a caller ranking places has to
+be able to drop the first.
+
+</details>
+
+<details>
+<summary><b>Advanced detail:</b> four numbers in the item tables that are not numbers</summary>
+
+`items.py` reads four files, and each one had a trap in it.
+
+**`MAX_STAT_VALUE` is not 999.** `heal_hp.asm` writes a full heal as that
+constant rather than as an amount, and treating it as its numeric value makes a
+Max Potion look *worse* than a Hyper Potion on anything under 999 max HP —
+which is every Pokémon in the game. It is `FULL`, and it sorts as bigger than
+any hole.
+
+**Every mart stock list opens with its own count byte,** `db 4`. A pattern
+allowing a leading digit reads that as an item called "4", and a shopping
+errand's first candidate is then a name no item table has.
+
+**Two prices are sentinels.** A Master Ball's price is 0 because no counter
+sells one; the Town Map carries `$9999`, which read as a price makes it the
+costliest item in the game. `for_sale` is both conditions, and `price()` reports
+zero for either.
+
+**Sleep is a counter, not a bit.** `heal_status.asm` writes the other four
+statuses as `1 << PSN` and sleep as `SLP_MASK`, so a reader matching only shift
+expressions leaves an Awakening curing nothing. `_statuses` matches the *names*
+out of the expression rather than evaluating the arithmetic.
+
+And one thing that is about ordering rather than parsing. `cures(status)` sorts
+by how *narrow* the cure is before how cheap it is, and the order matters more
+than the price does: a Miracleberry ends a poisoning and costs less than an
+Antidote, so sorting on price alone spends the one item that answers all five
+statuses on the one status that has four other answers — and the party is then
+asleep with nothing that wakes it.
 
 </details>
 
@@ -303,7 +459,7 @@ used one could not be walked back.
 
 ## 4. Hooks: the game asks, we answer
 
-<!-- covers: pilot/symbols.py pilot/session.py @ 5b73c542cbf8 -->
+<!-- covers: pilot/symbols.py pilot/session.py @ f2cc41765658 -->
 
 This is the spine of the whole design. Instead of polling memory to guess what
 the game wants, the pilot sets a callback on the ROM routine that *is* the
@@ -370,7 +526,7 @@ usually the one that mattered.
 
 ## 5. Battles
 
-<!-- covers: pilot/battle.py pilot/control.py @ 09b2d3a765db -->
+<!-- covers: pilot/battle.py pilot/control.py @ f73b5cff0a24 -->
 
 One engine, driven by a policy. A grind wants to win, a hunt wants to leave, a
 catch wants to weaken and stop — all three are the same loop with different
@@ -432,24 +588,38 @@ entered before we started listening. It is not a substitute for a hook.
 
 ### Fight, flee, or switch
 
+Four answers now, not three, and the order of the questions is what makes the
+bag useful rather than decorative.
+
 ```mermaid
 flowchart TD
-    A["our turn"] --> F{"HP below flee_below,<br/>or always_flee?"}
+    A["our turn"] --> SW{"switch_to_target and<br/>the target is not out?"}
+    SW -- yes --> SWITCH["send the target out"]
+    SW -- no --> AF{"always_flee?"}
+    AF -- yes --> TRY
+    AF -- no --> H{"HP at or below heal_below,<br/>and something in the bag<br/>that helps?"}
+    H -- yes --> HEAL["drink it"]
+    HEAL --> A
+    H -- no --> F{"HP below flee_below,<br/>and this is a wild battle?"}
     F -- yes --> TRY["try to run"]
     TRY -- "got away" --> FLED["fled"]
     TRY -- "cannot run" --> C{"fight_if_cornered?"}
     C -- yes --> FIGHT
     C -- no --> KEEP["keep trying"]
-    F -- no --> SW{"switch_to_target and<br/>the target is not out?"}
-    SW -- yes --> SWITCH["send the target out"]
-    SW -- no --> FIGHT["pick a move and attack"]
+    F -- no --> FIGHT["pick a move and attack"]
     FIGHT --> R{"battle over?"}
     R -- no --> A
     R -- yes --> OUT["won · lost · ended"]
 ```
 
+**The bag is asked before the exit, and its threshold is higher.** `heal_below`
+is 0.45 against `flee_below`'s 0.35, so a fight that can still be won gets a
+Potion and gets won, and the flee is what answers an *empty bag* rather than
+what answers low HP. Reversed, the flee returns first and the bag is never
+opened.
+
 <details>
-<summary><b>Advanced detail:</b> why `fight_if_cornered` exists</summary>
+<summary><b>Advanced detail:</b> why `fight_if_cornered` exists, and what the bag fixed</summary>
 
 **Trainer battles cannot be fled.** A policy that only knows how to run will
 stand in one losing HP until something faints, so `fight_if_cornered` turns "I
@@ -457,10 +627,31 @@ tried to leave and could not" into "then win instead". `TryToRunAwayFromBattle`
 is hooked precisely so the pilot can tell a refused escape from a successful
 one, rather than inferring it from HP that has quietly gone down.
 
+That is also where the mid-fight heal earns itself, and it cannot be seen from a
+wild encounter: before it existed, "flee" in a trainer fight meant "fail to
+escape, then fight it out at 20% HP" — which is how a trainer sweep with Potions
+in the bag still blacked out.
+
+Two bounds on it, both because a refused item is otherwise an infinite turn: at
+most `max_heals` per battle, and an item that moves no HP stops the engine
+reaching for the bag again in that fight. The count goes up either way, because
+the turn is consumed either way.
+
 **Switching exists because a grind trains one Pokémon.** The XP goes to whoever
 is on the field, so `switch_to_target` sends the grind's subject out if the game
 led with somebody else. `_switch_to` verifies with `active_slot` afterwards and
 notes it rather than assuming the switch took.
+
+It also *drives* the party list rather than counting presses at it, which it did
+not always do. The list is `wMenuCursorY`, one row per member plus CANCEL, and
+it **wraps** — so the old "press UP six times to normalise, then DOWN to the
+slot" works or fails depending on the size of the party: six presses on a
+two-row list return to where they started and on a four-row list land two rows
+off. Measured with the cursor parked on CANCEL, where the previous turn leaves
+it, the old version stayed there and pressed A twice. With a full party that
+sends out the wrong Pokémon, and the only sign is a grind that trains something
+else. This repo's own mutation self-check tests for the same defect in
+`choose_move` by name.
 
 **Move choice ranks by power × accuracy, not by matchup.** There is no type
 chart here. Good enough to grind efficiently, and explicitly not optimal play —
@@ -470,23 +661,139 @@ listed in the README's limits for that reason.
 
 ---
 
+## 5a. The bag
+
+<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ b16dee144edb -->
+
+The pilot could throw a ball and do nothing else with the pack. Using an item on
+a party member is the thing everything else here depends on: healing without a
+walk, curing what a Potion cannot, and drinking mid-fight.
+
+There are **two packs**, and they are not the same pack. One opens from the
+START menu; one opens from the battle menu. They ask different numbers of
+questions, want different button holds, and their party lists report different
+row counts for the same party.
+
+```mermaid
+flowchart TD
+    subgraph field["from the map — use_item_on"]
+        F1["START menu<br/>try rows until the pack appears"] --> F2["walk to the ITEM pocket"]
+        F2 --> F3["walk to the item"]
+        F3 --> F4["USE / GIVE / TOSS / QUIT<br/>confirm USE"]
+        F4 --> F5["party list<br/>pick the member"]
+        F5 --> F6["past the message,<br/>then close everything"]
+    end
+    subgraph batt["from a battle — use_item_in_battle"]
+        B1["PACK from the battle menu"] --> B2["walk to the ITEM pocket"]
+        B2 --> B3["walk to the item"]
+        B3 --> B4["USE / QUIT<br/>confirm USE"]
+        B4 --> B5["party list, if it appears"]
+    end
+```
+
+**Nothing in either chain trusts a press.** Every box is confirmed by its shape
+before anything is pressed into it, the pocket and the item are walked to by
+*reading* `wCurPocket` and `wCurItem`, and the outcome is judged by HP and the
+status byte rather than by the presses landing.
+
+<details>
+<summary><b>Advanced detail:</b> five measurements, each of which made this report success while doing nothing</summary>
+
+**The pack's START row is not fixed.** The START menu grows as the game
+progresses — no POKéDEX or POKéGEAR early on — so PACK sits at a different
+index depending on how far things have got. `open_pack` drives to a row, presses
+A, and asks whether the pack's own box appeared. `backup.py` learned the same
+thing about SAVE and solved it there by knowing SAVE is always third from the
+end; PACK has no such anchor.
+
+**A on the field pack's item list needs a longer hold.** Swallowed at 7 frames,
+lands at 8, measured one frame at a time. The ordinary tap is 6, so the first
+version drove the pack, reached the right item, and reported "the USE box never
+appeared" from a pack that was open and correct. The battle pack takes 6.
+
+**A box on screen is not yet a box that takes input.** `await_box` returning on
+the first matching frame made every press "land", every box "appear", and the
+Potion never get used. The field pack's party list takes input after ten frames
+and the battle pack's after thirty, so the settle is thirty. `backup.py` already
+carried this warning about the save confirm — "any A pressed before that is
+swallowed" — and it is the same fact about other boxes.
+
+**DOWN past the last pack entry lands on CANCEL and stays there.** The list does
+not wrap, so an overshoot is walked back once and a second miss is reported
+rather than pressed through.
+
+**`past_the_message` must stop at a box, not at a flag.** Not `advance_text`,
+which taps A for as long as the game keeps asking — and after a heal the pack is
+still open and still asking. With two Potions in the bag that press lands on the
+next item and uses it.
+
+And the standard for all of it: **at full HP the game takes every press, says
+the item would have no effect, spends nothing, and drops back to the pack.** A
+press-counting caller calls that a heal. So `travel.py` reads the HP and the
+status byte, and re-reads the mon after a cure rather than counting one that the
+game refused.
+
+</details>
+
+<details>
+<summary><b>Advanced detail:</b> which item, out of the ones actually carried</summary>
+
+`heal_from_bag` spends the **least wasteful** item that finishes the job: the
+smallest whose amount covers what is missing, falling back to the largest held
+when nothing covers it. Sorting by price is how a Full Restore gets spent on
+four missing HP; sorting by size is how it gets spent on twenty.
+
+`cure_from_bag` runs *first*, and skips fainted members — nothing in the item
+pocket revives one, so offering a cure there is a press that cannot work. A
+Revive is `ITEMMENU_PARTY` too, which is why the filter is on the Pokémon and
+not only on the item.
+
+Battle-usable and field-usable are different lists, asked for by name rather
+than assumed to be the same: a Berry heals HP in a fight and is
+`ITEMMENU_NOUSE` outside one, so offering it on the map is offering a press that
+silently does nothing.
+
+</details>
+
+---
+
 ## 6. Moving around
 
-<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ 809e673b50c8 -->
+<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ f11ce6e4e637 -->
 
-Four layers, each built on the one below.
+Five layers, each built on the one below. The top one is a fan rather than a
+single answer, because "go somewhere and do a thing" is three different things.
 
 ```mermaid
 flowchart TD
     S["step<br/>one tile, verified"] --> W["follow_path_to<br/>walk to a tile, re-planning"]
     W --> C["cross_edge<br/>leave by a map edge"]
     C --> T["travel_to<br/>hop across the world graph"]
-    T --> H["heal_round_trip<br/>go, heal, come back"]
+    T --> H["heal_up<br/>bag first, then the walk"]
+    T --> R["restock<br/>go to a counter and buy"]
+    W --> K["take_here<br/>pick up what the map holds"]
 ```
 
 A step is not "press the button for N frames". Fixed-length presses go wrong in
 both directions: too short and the press is spent turning, too long and you take
 a second step into grass you did not plan for.
+
+<details>
+<summary><b>Advanced detail:</b> what a re-plan budget is a budget for</summary>
+
+`follow_path_to` has two bounds, and they count different things.
+`max_battles` bounds wild encounters; `replans` bounds *being wrong about the
+map* — a tile the collision decode thinks is open and an NPC is standing on.
+
+They were one bound for a while, against a comment saying they were not. A
+battle inside the step loop broke out and the top of the loop charged it a
+re-plan like any other derailment, so the budget was really "eight
+interruptions of any kind" — and crossing a route spends that on encounters
+before arriving anywhere. Measured: Route 30's item ball, thirty-five tiles of
+grass away, reported `blocked` with the collision map perfectly happy about the
+path. Only an obstacle is charged now, which is what makes eight enough.
+
+</details>
 
 <details>
 <summary><b>Advanced detail:</b> edge tiles, and the exploratory fallback</summary>
@@ -514,6 +821,37 @@ and the `.sym` and no source tree.
 nurse, and comes back to where it was working. Ending the trip at the Pokémon
 Center would leave a grind standing in a town with no grass in it — which is
 exactly the bug the mobile port shipped and had to fix.
+
+**But the bag comes first.** `heal_up` is the entry point, and its order is the
+feature: cures, then HP, then the walk. Cures before HP because a Potion does
+not fix poison, so healing the HP first and *then* asking whether the party
+needs healing sees a full-HP party, calls it done, and leaves the poison ticking
+on the next patch of grass. The bag before the walk because a Potion is instant
+and the nearest Center from Route 30 is two maps and a gate building away,
+through grass, fleeing an encounter every few tiles. `healed_via` records which
+one it was, because a row reading "healed" cannot tell a two-second bag heal
+from a two-minute round trip.
+
+**A clerk is not a nurse.** A nurse stands behind a desk you approach from
+below; a Mart clerk stands behind a one-tile counter you talk *across*, and the
+tile between is a wall. Measured in Cherrygrove: the clerk is at (1,3), (2,3) is
+the counter, and the player has to be at (3,3) facing left. The tile below the
+clerk is not walkable at all, so the nurse's approach reaches nothing and
+reports no counter. `talk_to_clerk` tries every tile that could see the clerk —
+the four adjacent and the four two away along an axis — nearest first.
+
+**The world graph reads three more things off each map.** The counters and their
+clerks, so `restock` has somewhere to go; the item balls, joined to the
+`itemball ANTIDOTE` line in the script each one names, which is the only place
+the item appears; and the fruit trees, found by sprite because a tree is
+`OBJECTTYPE_SCRIPT` like any NPC. An item ball also carries the **event flag**
+that hides it once taken, which is what lets `things_here` answer before the
+walk — the mobile port has to go and press A to find out.
+
+**`routes_from` answers many destinations from one search.** `route_to` is
+predicate-first-match, which is the right shape for "the nearest Pokémon Center"
+and the wrong shape for ranking a list: asking it about twenty-two counters is
+twenty-two walks over the same graph.
 
 </details>
 
@@ -558,7 +896,7 @@ counting `session.presses` was measuring a list that movement never touches.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py @ 68a27886f669 -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 0c7d66b853e0 -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -571,28 +909,44 @@ their own.
 | `hunt` | searches the route for a species and hands you the battle |
 | `catch` | the same search, then weakens and throws |
 | `trainers` | sweeps every trainer on a route |
+| `shop` | walks to the nearest counter stocking something and buys it |
+| `take` | picks up the item balls and fruit trees on this map |
 | `search` | the wild-encounter loop `hunt` and `catch` share |
 
-### Three that act on where you already are
+Two of those are **idempotent errands**, and reporting them that way matters.
+Running `shop` when the bag is already full, or `take` on a map with nothing
+left, is `completed` with nothing bought or taken — it is the state the errand
+exists to reach, and the second run is not a failure. `take` draws one further
+line: reaching something that turns out to be empty is fine (a fruit tree gives
+fruit once a day and is offered every time), while being unable to *reach*
+something is the pilot's problem and is reported as blocked.
 
-<!-- covers: pilot/tasks/moment.py @ d76ca89aa3cf -->
+### Five that act on where you already are
 
-Every task above goes *looking* for something. These do the obvious thing with
-the situation in front of you and take no target:
+<!-- covers: pilot/tasks/moment.py pilot/tasks/shop.py pilot/tasks/take.py @ 7b886dd2cd2c -->
+
+Every searching task above goes *looking* for something. These do the obvious
+thing with the situation in front of you and take no target:
 
 | Command | Does | Refuses when |
 | --- | --- | --- |
 | `battle` | plays out the battle you are in, wild or trainer | you are not in one |
 | `capture` | weakens and throws at the wild Pokémon you are facing | not in a battle · it is a trainer's · party full · no balls |
-| `heal` | walks to the nearest heal place and comes back | you are in a battle · no party |
+| `heal` | cures and heals from the bag, then walks if it must | you are in a battle · no party |
+| `take` | picks up what this map is still holding | you are in a battle |
+| `shop` | buys more of what has run out | you are in a battle · nothing sold anywhere stocks it |
 
 ```mermaid
 flowchart TD
     A["what is happening?"] --> B{"in a battle?"}
-    B -- no --> HEAL["heal is the one that applies"]
     B -- yes --> T{"a trainer?"}
     T -- yes --> ONLYB["battle only — a trainer's<br/>Pokémon cannot be caught"]
     T -- no --> BOTH["battle, or capture"]
+    B -- no --> M{"is the party hurt<br/>or poisoned?"}
+    M -- yes --> HEAL["heal"]
+    M -- no --> N{"anything left on<br/>this map?"}
+    N -- yes --> TAKE["take"]
+    N -- no --> SHOP["shop, if the bag has run low"]
 ```
 
 None of them contain new game logic: the battle engine, the capture loop and the
@@ -630,11 +984,33 @@ question. Pass `--flee-below` to get the escaping policy.
 memory cold, which is why it does not weaken unless asked.
 
 **`heal` reports an already-healthy party as completed**, not as an error —
-nothing needed doing, which is the outcome the caller wanted. `--force` goes
-anyway, which is also how the round trip gets exercised: verified travelling
-`ROUTE_29 → CHERRYGROVE_POKECENTER_1F (2 hops)` and back. That took 0.1s of wall
-time, which looks impossible until you remember this runs at roughly 28,000 fps
-headless — about 47 seconds of game time.
+nothing needed doing, which is the outcome the caller wanted. `--force` skips
+the bag and goes anyway, which is also how the round trip gets exercised:
+verified travelling `ROUTE_29 → CHERRYGROVE_POKECENTER_1F (2 hops)` and back.
+That took 0.1s of wall time, which looks impossible until you remember this runs
+at roughly 28,000 fps headless — about 47 seconds of game time.
+
+"Healthy" includes the status byte, and it did not always. `heal` filtered the
+party on `hp < max_hp` alone, so a party at full HP and *poisoned* reported "the
+party is already at full health" and did nothing — which is the exact state a
+grind leaves behind, and the one a cure exists for.
+
+**`shop`'s default is the question rather than an item.** With no argument it
+buys balls when the bag has none and potions otherwise, because that is the
+thing that has run out. It also checks the wallet *before* the walk: four maps
+to discover you cannot afford one Potion is the same amount of walking as
+affording it, and a worse answer. What it cannot check in advance is what a
+counter will actually sell — Cherrygrove keeps Poké Balls behind the Mystery Egg
+flag, so its listed stock and its real stock differ for the whole early game.
+`buy_from_clerk` returns *why* it refused rather than a bare false, and the
+errand answers with a place name: "not stocking it today; AZALEA_MART also lists
+it".
+
+**`take` presses A and reports the bag, because that is the only evidence.** An
+item ball gives an item and moves nothing else. What it *can* do in advance is
+skip a ball already taken, using the event flag from the object's own
+`object_event` line — which is the one place this repo can answer a question the
+mobile port has to walk over and press A to settle.
 
 </details>
 
@@ -805,6 +1181,131 @@ Master Ball is never thrown unless you name it.
 
 ---
 
+## 7b. Where to go instead
+
+<!-- covers: pilot/advice.py pilot/wild.py @ 2cb3e6dd30ec -->
+
+A grind that runs its budget and gains two levels has answered the wrong
+question. `advice.py` answers the right one, out of two facts that were already
+known and never put together: what a route's grass tops out at, and which maps
+the graph can reach from here.
+
+```mermaid
+flowchart TD
+    A["this grind is slow"] --> H{"does another hour of<br/>*this* grass pay better?"}
+    H -- yes --> WAIT["come back then —<br/>waiting costs no legs"]
+    H -- no --> W{"anywhere reachable that<br/>pays, beats here, and<br/>can be survived?"}
+    W -- yes --> GO["name it and how far"]
+    W -- no --> QUIET["say nothing"]
+```
+
+Waiting is offered ahead of walking because an hour costs no route and no legs.
+Silence is a real answer, and the common one in the mid-game — it has to read as
+silence rather than as a recommendation to stay put.
+
+<details>
+<summary><b>Advanced detail:</b> three conditions, two of which are bugs it had first</summary>
+
+**It has to pay** — the grass tops out at or above the level being trained. One
+fact about two numbers, and deliberately not a model of experience.
+
+**It has to beat here.** A Lv2 on Route 29 was being sent to Route 46, which
+gives exactly the same Lv2-3. That is a wasted journey dressed as advice.
+
+**It has to be survivable.** This is the one worth writing down: "tops out at or
+above the lead" alone sent a Lv5 on Route 29 two maps to Route 27 — which the
+graph really does reach, through New Bark — and Route 27 gives Lv28-32. The
+advice was to walk a Lv5 Chikorita somewhere the first thing it met would knock
+it out. A route that *pays* is not the same as a route that can be *survived*,
+so a candidate's lowest encounter may be at most `OVER_LEVEL` above the lead.
+
+With all three, a Lv5 on Route 29 is told *Route 31 gives Lv4-5, 3 maps away*,
+and a Lv30 is told Route 27 — which is the proof the rule is about the gap
+rather than about that route.
+
+`better_hour` needed the same "beat here" correction, and it was found by
+measuring rather than reasoning: Crystal's three blocks carry the *same* levels
+on every Johto route, so the first version advised coming back in the morning
+while standing in an indistinguishable afternoon. Measured again afterwards:
+null at every level on every Crystal route, which is the honest thing to say
+about that half of the feature — and a hack that changes the tables gets it for
+free.
+
+</details>
+
+---
+
+## 7c. One engine, many titles
+
+<!-- covers: pilot/titles/contract.py pilot/titles/crystal.py pilot/titles/generic.py pilot/titles/pick.py pilot/tasks/bootstrap.py @ 00c5b7fb80c0 -->
+
+Everything the pilot does is resolved by name from the symbol file or parsed out
+of the disassembly — except a handful of tiles, and those all belong to the
+opening. Which tile Elm's aide stands on, which of three balls is Cyndaquil, the
+doorways between a bedroom and Route 29.
+
+Those were module constants inside `tasks/bootstrap.py`, where nothing could say
+they were *Crystal's* facts rather than Gen 2's. A hack that moved the lab got a
+pilot pressing A at a wall for four hundred taps and then a report blaming the
+ROM.
+
+```mermaid
+flowchart TD
+    H["cartridge header<br/>+ symbol table"] --> P["pick_title"]
+    P --> V{"does the profile<br/>pass the contract?"}
+    V -- no --> SKIP["say why, and try the next"]
+    V -- yes --> M{"does it recognise<br/>this cartridge?"}
+    M -- yes --> USE["drive with it"]
+    M -- no --> SKIP
+    SKIP --> G["generic — matches anything"]
+    G --> USE
+```
+
+`generic` is last and matches anything, so an undescribed cartridge is supported
+*immediately*: grinding, hunting, catching, healing, shopping, taking and the
+trainer sweep all run off the symbol table and the map files and need no profile
+at all. What it cannot do is start a new game, and it says so by name before
+pressing anything rather than failing halfway through an intro.
+
+<details>
+<summary><b>Advanced detail:</b> the contract earned itself on its first run</summary>
+
+The failures a hand-written profile has are all quiet ones — a coordinate given
+as a list instead of a pair, a map named by id where the code wants a constant,
+a `starters` entry missing its species. None is a crash at load, which is
+exactly why they need finding at load. So `validate_title` checks the *shape* of
+every field, and `pick_title` skips a profile that fails: a hack with a broken
+description keeps a working pilot rather than half-driving with one it cannot
+trust.
+
+It is deliberately not exhaustive about *values*. Whether Elm's lab really is at
+(5,2) is not something a checker can know, and a profile that says the wrong
+tile is a profile that talks to a wall.
+
+**And it rejected the profile written alongside it.** `first_route.edge` said
+`"west"` while the contract wanted `"left"`, because a push is a *button* and an
+edge is a *compass bearing* and there was one list for both. Header matched,
+symbol matched, profile silently discarded, pilot quietly running as `generic`.
+That is precisely the class of failure the file exists for, arriving before
+anything shipped rather than after.
+
+**Recognition is header *and* symbol.** A pokecrystal hack routinely keeps
+PM_CRYSTAL in its header, so matching on that alone claims every hack as Crystal
+and then walks into a moved lab. Crystal asks for a symbol only the Johto tables
+define. What this cannot do is tell two hacks of the same base apart when
+neither changed its header nor its symbols; `--title` is the honest answer
+there, and it goes through the same validation — naming a profile by hand is the
+one path a profile author would use to try their own file, so skipping the check
+there would be the worst place to skip it.
+
+The header is NUL-terminated in practice: reading all sixteen bytes of
+0x0134-0x0143 gives `"PM_CRYSTALBYTE"`, the title followed by a manufacturer
+code, and no profile matches.
+
+</details>
+
+---
+
 ## 8. Three ways to drive it
 
 `cli.py` is a dispatch table, not a staircase. `main()` parses, checks the ROM
@@ -813,7 +1314,7 @@ exists, and looks the command up:
 | group | what it gets | commands |
 | --- | --- | --- |
 | `STANDALONE` | just `args`; owns its own session | play, serve, timeline, resume, slots/save/load/undo, backups |
-| `IN_GAME` | `(pilot, args)` with the save already loaded | status, hunt, battle, capture, heal, catch, trainers, grind |
+| `IN_GAME` | `(pilot, args)` with the save already loaded | status, hunt, battle, capture, heal, catch, trainers, grind, take, shop |
 | neither | a pilot and deliberately *no* loaded game | bootstrap |
 
 It was one 342-line function six deep in `if args.cmd ==`, at 35% coverage in a
@@ -832,7 +1333,14 @@ meet contrast at the bar for what each colour actually is. The endpoint check is
 the one that earns its place — a renamed route leaves the button on screen, the
 fetch 404s, and the only sign is in a console nobody has open on a phone.
 
-<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 1b55b1b95f9b -->
+Two more checks of the same kind, and the same failure: **a control that looks
+fine and does nothing.** Every task *kind* the page can send must be one
+`_plan` knows how to plan, since the fall-through there is a polite refusal and
+the only sign is a button that appears broken. And every `state.foo` the page
+reads must be a field the server publishes, since a renamed payload field
+renders as "undefined" on a phone with no console open.
+
+<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 97ab0fc9edc2 -->
 
 The same tasks, three front ends, one `TaskResult` shape between them.
 
@@ -985,7 +1493,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ 3f7e7130a339 -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ a5c7550ff58f -->
 
 ```bash
 ./run-tests                      # everything
@@ -997,7 +1505,7 @@ before any task.
 231 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
-**67 of them need nothing but the repository**, which is what CI has: the
+**104 of them need nothing but the repository**, which is what CI has: the
 disassembly is cloned but no ROM is built, because building one needs rgbds and
 no ROM is distributed. `tests/fake.py` is why that number is not 20 — a
 stand-in session over a work-RAM buffer, with scripted button responses and a

@@ -6,8 +6,12 @@
 
 An auto-pilot for grinding in Pokémon Crystal. You point it at a party member and
 a target level, and it plays the route for you — finding grass, fighting wild
-Pokémon, picking sensible moves, walking to a Pokémon Center when it gets low,
-and saving when it's done.
+Pokémon, picking sensible moves, drinking a Potion mid-fight, curing what a
+Potion cannot, walking to a Pokémon Center when the bag runs out, and saving when
+it's done.
+
+It will also go shopping, pick up what a route is holding, and tell you when the
+grind you asked for is slower than one three maps away.
 
 It takes a backup before every task and gives up on a timeout rather than running
 forever.
@@ -38,10 +42,10 @@ standing on:
 
 ![The in-game menu](docs/screenshots/ingame-menu.png)
 
-Or run `crystal-pilot serve` and open the URL on your phone. Here it has just
-found a HOPPIP and left the battle live for you to take over:
+Or run `crystal-pilot serve` and open the URL on your phone. Here it is standing
+in Route 30's grass with a Quilava, every errand one tap away:
 
-<img src="docs/screenshots/web-ui.png" alt="The web UI on a phone" width="330">
+<img src="docs/screenshots/web-ui.png" alt="The web UI on a phone, showing the six errands" width="330">
 
 Every run can be recorded as a sped-up video with a caption strip carrying live
 state, so a three-hour grind is a minute you can actually watch:
@@ -122,7 +126,7 @@ crystal-pilot grind --slot 2 --to-level 30 --timeout 300
 | `--species NAME` / `--slot N` | who to train (default: slot 1). Names are fuzzy: `pikachu`, `Mr. Mime` |
 | `--to-level N` | target level (required) |
 | `--timeout SECONDS` | give up after this much real time (default 900) |
-| `--heal-below F` | visit a Pokémon Center below this HP fraction (default 0.40) |
+| `--heal-below F` | heal below this HP fraction — from the bag if it can, else a Pokémon Center (default 0.40) |
 | `--flee-below F` | run from wild battles below this HP fraction (default 0.30) |
 | `--no-evolve` | cancel evolutions instead of allowing them |
 | `--learn-moves` | accept new moves that replace an existing one (default: keep the moveset) |
@@ -176,12 +180,14 @@ picks the weakest move available, because the usual way to lose a catch is to
 knock it out. With no balls in the bag it refuses up front rather than hunting
 first and failing at the throw.
 
-### Act on the battle you are already in
+### Act on where you already are
 
 ```bash
 crystal-pilot battle
 crystal-pilot capture --weaken-to 0.4
 crystal-pilot heal
+crystal-pilot take
+crystal-pilot shop balls --want 5
 ```
 
 ```
@@ -189,16 +195,88 @@ done: won the wild battle
   kind=wild  result=won  turns=1  seconds=0.4
 ```
 
-Three commands that take no target: each reads the situation and either does the
+Five commands that take no target: each reads the situation and either does the
 obvious thing or says why it cannot. `battle` plays out the battle you are in,
 wild or trainer. `capture` throws at the wild Pokémon in front of you — use
-`catch` to go and *find* one. `heal` walks to the nearest heal place and comes
-back.
+`catch` to go and *find* one. `heal` gets the party back to full. `take` picks up
+what this map is holding. `shop` goes and buys more of what has run out.
 
 Each refuses precisely: `capture` declines a trainer's Pokémon, a full party and
-an empty bag; `heal` declines mid-battle and treats an already-healthy party as
-done rather than as an error. `battle` defaults to playing the battle out rather
-than fleeing — pass `--flee-below F` for the escaping policy.
+an empty bag; `heal` declines mid-battle; `shop` declines an item no counter in
+the game sells, before walking anywhere. `battle` defaults to playing the battle
+out rather than fleeing — pass `--flee-below F` for the escaping policy.
+
+An errand that is already done is **done, not an error**. `shop` with a full bag
+and `take` on an emptied map both report `completed` having changed nothing, so
+running either twice is safe.
+
+#### Healing: the bag first, then the walk
+
+```
+done: healed 1 Pokemon out of the bag, at ROUTE_30
+  hurt=1  from=ROUTE_30  via=bag  seconds=0.3  party=44/44
+```
+
+`heal` tries three things in order, and the order is the whole point.
+
+**Cures before HP**, because a Potion does not fix poison. Healing the HP first
+and then asking whether the party needs healing sees a full-HP party, calls it
+done, and leaves the poison ticking on the next patch of grass.
+
+**The bag before the walk.** A Potion in the bag is instant; the nearest Center
+from Route 30 is two maps and a gate building away, through grass, fleeing an
+encounter every few tiles.
+
+**The walk when the bag cannot finish**, which is the ordinary case early on.
+`--force` skips the bag and goes anyway.
+
+The row says which it was, because "healed" cannot tell a two-second bag heal
+from a two-minute round trip. And `--heal-below` now reaches for the bag
+*mid-fight* too, above the flee threshold — so a fight that can still be won gets
+a Potion and gets won, and fleeing is what answers an empty bag. That matters
+most where it cannot be seen from a wild encounter: a trainer battle cannot be
+fled at all, so before this a trainer sweep with Potions in the bag still blacked
+out.
+
+#### Take: what the map is holding
+
+```
+done: took 1x BERRY, 1x ANTIDOTE, 1x PSNCUREBERRY
+  where=ROUTE_30  offered=3  took=3  seconds=1.2
+```
+
+Item balls and fruit trees, nearest first, on ninety maps. The disassembly names
+each ball's item *and* the event flag that hides it once taken — so an item
+already picked up is not offered, and the walk is not made for nothing. A fruit
+tree has no flag because it regrows, so pressing A is the only way to find out
+what it has today; reaching one that turns out to be empty is an answer, not a
+failure.
+
+#### Shop: buying more of what runs out
+
+```
+done: bought 2x POTION for 600 at CHERRYGROVE_MART
+  from=ROUTE_30  wanted=3x POTION/SUPER_POTION  bought=2  spent=600  wallet=2400
+```
+
+```bash
+crystal-pilot shop                 # balls if the bag has none, else potions
+crystal-pilot shop potions
+crystal-pilot shop SUPER_POTION --want 10
+```
+
+It picks the nearest of the game's twenty-two counters that stocks what you
+asked for, checks the wallet **before** the walk, and buys what it can afford
+rather than refusing the whole errand.
+
+What it cannot know in advance is what a counter will actually sell. Cherrygrove
+keeps Poké Balls behind the Mystery Egg flag, so its listed stock and its real
+stock differ for the whole early game — and the answer to that is a place name
+rather than a shrug:
+
+```
+gave up (blocked): CHERRYGROVE_MART is not stocking it today; AZALEA_MART also lists it
+```
 
 `capture` does **not** weaken by default, unlike `catch`. Weakening is guarded:
 the pilot remembers the biggest hit one swing has landed and refuses to swing at
@@ -243,11 +321,23 @@ crystal-pilot status
 ```
 
 ```
-location : Route 29 (53,12)  [on grass]
+location : Route 30 (7,53)
 party    :
-  slot 1: CYNDAQUIL Lv12 27/35HP OK [TACKLE(26), LEER(30), SMOKESCREEN(20), EMBER(25)]
+  slot 1: QUILAVA Lv14 44/44HP OK [TACKLE(35), LEER(30), SMOKESCREEN(20), EMBER(25)]
+wallet   : 3000
+bag      : POTION x1
 nearest Center: CHERRYGROVE_POKECENTER_1F (2 hops)
+here     : a fruit tree, ANTIDOTE, a fruit tree
+grass    : Lv3-4
+the clock: also here: HOOTHOOT after dark, LEDYBA in the morning, and 3 more
 ```
+
+Every line below the party is something the pilot could always work out and
+never said. `here` is what the map is still holding — an item ball already
+picked up is not listed, because the game's own event flag says so. `the clock`
+names the species that live here at another hour, which is the one change to the
+offered species list that nobody makes and nothing explains. And when the lead
+has outgrown the grass, a `better` line names somewhere to go instead.
 
 ### Play, and hand over mid-session
 
@@ -602,9 +692,9 @@ drive a real emulator skip themselves. The runner says so rather than reporting
 a bare pass:
 
 ```
-67 passed, 86 skipped, 0 failed  (0.2s)
+104 passed, 127 skipped, 0 failed  (0.5s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (86 tests need a ROM built from the disassembly)
+  (127 tests need a ROM built from the disassembly)
 ```
 
 That used to be 20 of 108, and the 20 only read data files — the badge covered
@@ -729,18 +819,71 @@ cartridge rather than the disassembly, since a phone has the ROM and the `.sym`
 and nothing else: species and item names, wild tables, the move table, map
 connections and warps, and the live object list.
 
-Two things it found are worth knowing here.
+**Most of what this project can now do about the bag came from there.** Using an
+item on a party member, curing what a Potion cannot, drinking mid-fight, going
+shopping, picking things up off a route, telling you where to grind instead, and
+the title-profile idea in *Many titles* below were all built there first. What
+was ported is the *shape* of each answer, not the code — the two halves share no
+line and no language.
 
-The first is that **`wBalls` does not settle until a battle ends** — a Pokémon
-can already be caught while the bag still reads five. What this project reports
-is safe, because `catch.py` counts the balls it throws rather than differencing
-the bag. Its one mid-battle `ball_count` guard cannot fire, though: running dry
+Four things worth knowing here, three of them warnings.
+
+**`wBalls` does not settle until a battle ends** — a Pokémon can already be
+caught while the bag still reads five. What this project reports is safe,
+because `catch.py` counts the balls it throws rather than differencing the bag.
+Its one mid-battle `ball_count` guard cannot fire, though: running dry
 mid-capture surfaces as a throw that cannot find a ball rather than as
 `no_balls`, and the throw budget is what actually ends the loop.
 
-The second is the one that matters if you extend either half: verifying the
-collision decode against a single tile is necessary but **not sufficient** — see
-below.
+**Nor does `wItems` settle until the pack closes**, measured here rather than
+inherited: a Potion used on the map moved the HP immediately while `wItems`
+still listed it. So HP and the status byte are the evidence for a use and the
+bag is corroboration — which matters because at full HP the game takes every
+press, says the item would have no effect, and spends nothing.
+
+**Verifying the collision decode against a single tile is necessary but not
+sufficient** — see below.
+
+And one thing this half can do that the other cannot. Reading the disassembly
+rather than the cartridge means the pilot knows the **event flag** each item
+ball carries, so `take` can tell an item already picked up from one still lying
+there *before* walking to it. Over there a taken ball is still in the object
+list, and pressing A is the only way to find out.
+
+## Many titles
+
+Everything this pilot does is resolved by name from the `.sym` file or parsed out
+of the disassembly — which means it is already version-agnostic about almost
+everything. The exception is the opening: which tile Elm's aide stands on, which
+of three balls is Cyndaquil, the doorways between a bedroom and Route 29. Those
+are facts about *Crystal's script*, not about the Gen 2 engine.
+
+They live in `pilot/titles/` now, one profile per cartridge, and an unknown ROM
+falls through to `generic` — which matches anything and drives everything except
+`bootstrap`. So grinding, hunting, catching, healing, shopping, taking and the
+trainer sweep all work on a pokecrystal hack nobody has described.
+
+```bash
+crystal-pilot --title crystal grind --slot 1 --to-level 20
+```
+
+Recognition is the cartridge header **and** a symbol, because a hack routinely
+keeps `PM_CRYSTAL` in its header — matching on that alone claims every hack as
+Crystal and then walks into a lab that has been moved. `--title` forces a
+profile for the case neither can resolve.
+
+A profile is checked at load rather than trusted, because the mistakes a
+hand-written file makes are all quiet: a coordinate as a list instead of a pair,
+a map named by id where the code wants a constant. A profile that fails the
+contract is skipped with its reasons printed, so a broken description keeps a
+working pilot instead of half-driving with one it cannot trust.
+
+That check earned itself immediately: it rejected the profile written alongside
+it, because `first_route.edge` said `"west"` where the contract wanted
+`"left"` — a push is a button and a map edge is a compass bearing, and there was
+one list for both. Header matched, symbol matched, profile silently discarded,
+pilot quietly running as `generic`. Exactly the failure the file exists for,
+found before it shipped.
 
 ## Limits
 
@@ -755,9 +898,18 @@ below.
   sending the catch to a box.
 - **No type effectiveness.** Move choice ranks by power × accuracy, not matchup.
   Good enough to grind efficiently; not optimal play.
-- **Healing needs a reachable Pokémon Center.** It walks; it doesn't use bag
-  items, Fly or Teleport. If no Center is reachable the task stops cleanly and
-  says so rather than fainting.
+- **Healing uses the bag first and then walks.** It does not use Fly or
+  Teleport, so if the bag cannot finish the job and no Pokémon Center is
+  reachable, the task stops cleanly and says so rather than fainting.
+- **Only standard shop counters are driven.** A bargain shop sells one of each
+  and a pharmacy has its own quantity box, so the twenty-two counters the pilot
+  will walk to are the ones whose five-box sequence it actually knows. A shop it
+  cannot drive is worse than no shop, because it is a place it would walk to.
+- **An undescribed cartridge cannot start a new game.** Everything after the
+  opening works on any pokecrystal-shaped ROM, because it is all resolved from
+  the symbol file and the map files — but `bootstrap` needs to know which tile a
+  starter is on, and it refuses by name rather than guessing. See *Many titles*
+  below.
 - **Trainer battles are not sought out**, and the pilot won't fight one it can't
   flee. Grinding happens on wild encounters.
 - **Recording is a timelapse, not a replay.** Frames are sampled, so the video
@@ -774,14 +926,16 @@ below.
 pilot/
   session.py     PyBoy wrapper: hooks, input, bank-qualified memory, budgets, SRAM
   symbols.py     .sym parsing, struct offsets, hooked routines
-  gamedata.py    species/move/map tables parsed from the pokecrystal source
-  state.py       typed reads of party, battle and location
+  gamedata.py    species/move/map/event tables parsed from the pokecrystal source
+  items.py       prices, pockets, HP amounts and status cures, from the same source
+  state.py       typed reads of party, battle, location, both bag pockets, the wallet
   collision.py   live collision map + breadth-first pathfinding
   nav.py         movement primitives, edge crossing, grass finding
-  control.py     driving dialogue, the battle menu and move select
-  battle.py      battle policy: move ranking, fleeing, switching, prompts
-  world.py       map graph from connections + warps; nearest Pokémon Center
-  travel.py      cross-map travel and the Pokémon Center round trip
+  control.py     driving dialogue, the battle menu, move select and both packs
+  battle.py      battle policy: move ranking, the bag, fleeing, switching, prompts
+  world.py       map graph from connections + warps; Centers, counters, item balls
+  travel.py      cross-map travel, healing, shopping, and picking things up
+  advice.py      where to grind instead, and which hour of the grass pays
   backup.py      save backups and in-game saving
   webui.py       the phone web UI's server side
   web/           the page it serves
@@ -798,5 +952,12 @@ pilot/
     catch.py     find and catch one
     trainers.py  battle every trainer on the route
     search.py    the wild-encounter loop hunt and catch share
+    shop.py      go to the nearest counter and buy more of something
+    take.py      pick up the item balls and fruit trees on this map
     bootstrap.py new game -> starter -> first route
+  titles/
+    contract.py  what a title profile has to be, checked at load
+    crystal.py   Crystal's opening: the lab, the starters, the doorways
+    generic.py   matches anything; drives everything except a new game
+    pick.py      which cartridge is this
 ```
