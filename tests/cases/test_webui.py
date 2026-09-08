@@ -423,7 +423,8 @@ def _(t):
     from pilot.collision import CollisionMap
     from pilot.tasks.bootstrap import Bootstrap
     p = t.pilot_on(t.rom_copy("doorway"))
-    Bootstrap(p.session, p.reader, p.control, p.nav, log=lambda *a: None).run_intro()
+    Bootstrap(p.session, p.reader, p.control, p.nav, p.title,
+              log=lambda *a: None).run_intro()
     web = WebPilot(p, source=t.source, log=lambda *a, **k: None)
     p.calibrate()
     before = p.reader.location()

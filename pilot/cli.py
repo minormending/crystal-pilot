@@ -23,6 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--source", default=str(DEFAULT_SOURCE),
                     help="pokecrystal disassembly checkout (for names and data)")
     ap.add_argument("--sym", default=None, help="symbol file (default: <rom>.sym)")
+    ap.add_argument("--title", default=None,
+                    help="force a title profile by id (default: recognise "
+                         "the cartridge). Use this for a hack that keeps "
+                         "Crystal's header and symbols but moves its "
+                         "opening.")
     ap.add_argument("--sav", default=None, help="save file (default: <rom>.sav)")
     ap.add_argument("--backup-dir", default=None,
                     help="where to keep save backups (default: <rom dir>/pilot-backups)")
@@ -244,7 +249,7 @@ def make_pilot(args, window: str = "null", speed: int = 0) -> Pilot:
     log = (lambda *a, **k: None) if args.quiet else print
     return Pilot(rom=args.rom, source=args.source, sym=args.sym, sav=args.sav,
                  backup_dir=args.backup_dir, window=window, speed=speed,
-                 timeout_seconds=args.timeout, log=log)
+                 timeout_seconds=args.timeout, title=args.title, log=log)
 
 
 def checkpoint_dir_for(args, path=None) -> Path | None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from . import advice, wild
+from . import advice, titles, wild
 from .backup import BackupManager, GameSaver
 from .collision import CollisionMap
 from .control import Control
@@ -38,7 +38,8 @@ class Pilot:
                  sav: str | Path | None = None, sym: str | Path | None = None,
                  backup_dir: str | Path | None = None, window: str = "null",
                  speed: int = 0, timeout_seconds: float = 900.0,
-                 max_frames: int | None = None, log=print):
+                 max_frames: int | None = None, title: str | None = None,
+                 log=print):
         self.log = log
         rom = Path(rom)
         # A generous default frame cap: at ~30k fps headless this is minutes of
@@ -64,6 +65,11 @@ class Pilot:
             sav_path=self.session.sav_path, log=log,
         )
         self.slots = Slots(self.backups.dir / "slots", log=log)
+        # Which cartridge this is, and therefore whose opening to drive. Picked
+        # once at startup rather than asked per task, and never None: `generic`
+        # matches anything and admits what it cannot do.
+        self.title = (titles.title_by_id(title, log=log) if title else None) \
+            or titles.pick_title(self.session, log=log)
 
     def calibrate(self, attempts: int = 4) -> bool:
         """Verify the collision decode against the running game.
@@ -333,7 +339,7 @@ class Pilot:
 
     def bootstrap(self, starter: str = "cyndaquil", to_route: bool = True):
         b = Bootstrap(self.session, self.reader, self.control, self.nav,
-                      log=self.log)
+                      self.title, log=self.log)
         b.run_intro()
         b.walk_to_lab()
         b.get_starter(starter)
@@ -342,17 +348,27 @@ class Pilot:
         return self.reader.summary()
 
     def to_first_route(self) -> bool:
+        """Leave the lab and get onto the first route's grass.
+
+        The doorway, the edge and the route all come from the title profile --
+        they were `(4, 11)`, `"west"` and `"ROUTE_29"` inline, which are facts
+        about Crystal and read here as facts about the engine.
+        """
+        first = getattr(self.title, "first_route", None)
+        if first is None:
+            self.log(f"the {self.title.id} profile does not say where the "
+                     f"first route is")
+            return False
         if not self.collision.calibrated:
             self.calibrate()
-        """Leave Elm's lab and get onto Route 29's grass."""
         for _ in range(4):
-            if self.nav.take_warp(4, 11, push="down"):
+            if self.nav.take_warp(*first["warp"], push="down"):
                 break
             self.control.run_scripts()
             self.nav.settle()
-        if self.traveler.current_const() == "NEW_BARK_TOWN":
-            self.nav.cross_edge("west")
-        ok = self.traveler.current_const() == "ROUTE_29"
+        if self.traveler.current_const() == first["from_map"]:
+            self.nav.cross_edge(first["edge"])
+        ok = self.traveler.current_const() == first["route"]
         if ok:
             self.nav.find_grass()
         return ok

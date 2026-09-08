@@ -85,7 +85,8 @@ def _(t):
     from pilot.tasks.bootstrap import Bootstrap
     rom = t.rom_copy("intro")
     p = t.pilot_on(rom)
-    Bootstrap(p.session, p.reader, p.control, p.nav, log=t.note).run_intro()
+    Bootstrap(p.session, p.reader, p.control, p.nav, p.title,
+              log=t.note).run_intro()
     name = p.reader.player_name()
     t.note(f"the intro named the player {name}")
     t.true(name, "the player has a name at all")
