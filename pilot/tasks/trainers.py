@@ -66,7 +66,7 @@ class TrainerSweepTask(TaskLifecycle):
                 mon = self._lead()
                 if mon is None or mon.hp_frac < heal_below:
                     self.log("trainers: healing before the next fight")
-                    if not self.trav.heal_round_trip():
+                    if not self.trav.heal_up():
                         res.note("could not reach a Pokemon Center to heal")
                         break
                     if self.r.location().key != route_key:

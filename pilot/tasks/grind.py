@@ -96,7 +96,7 @@ class GrindTask(TaskLifecycle):
                     why = ("no PP left on any damaging move" if dry
                            else f"{mon.hp}/{mon.max_hp} HP")
                     self.log(f"grind: healing ({why})")
-                    if self.trav.heal_round_trip():
+                    if self.trav.heal_up():
                         stats["heals"] += 1
                         if not self._ensure_grass(route_key):
                             blocked_reason = "lost the grass patch after healing"

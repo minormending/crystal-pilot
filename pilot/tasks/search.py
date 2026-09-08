@@ -105,6 +105,6 @@ class WildSearch:
         return lead.hp_frac < heal_below
 
     def heal(self, route_key) -> bool:
-        if not self.trav.heal_round_trip():
+        if not self.trav.heal_up():
             return False
         return self.ensure_grass(route_key)

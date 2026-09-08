@@ -190,7 +190,11 @@ class HealTask:
             return res
 
         party = self.r.party()
-        hurt = [m for m in party if m.hp < m.max_hp]
+        # Status counts as hurt. It did not, and that was a real gap rather
+        # than a nicety: a party at full HP and poisoned reported "already at
+        # full health" and did nothing at all, which is the exact state a grind
+        # leaves behind and the one a cure exists for.
+        hurt = [m for m in party if m.hp < m.max_hp or m.status_name != "OK"]
         if not hurt and not force:
             # Reported as done rather than as an error: nothing needed doing,
             # which is the outcome the caller wanted.
@@ -202,7 +206,7 @@ class HealTask:
         started = time.time()
         where = self.trav.current_const()
         try:
-            went = self.trav.heal_round_trip()
+            went = self.trav.heal_up(force_walk=force)
         except PilotTimeout:
             res.status = "timeout"
             res.message = "ran out of budget on the way"
@@ -220,6 +224,12 @@ class HealTask:
                            f"{where}")
             return res
         res.status = "completed"
-        res.message = (f"healed {len(hurt)} Pokemon and came back to {where}"
-                       if hurt else f"healed, back at {where}")
+        via = self.trav.healed_via
+        res.stats["via"] = via or "walk"
+        if via == "bag":
+            res.message = f"healed {len(hurt)} Pokemon out of the bag, at {where}"
+        elif hurt:
+            res.message = f"healed {len(hurt)} Pokemon and came back to {where}"
+        else:
+            res.message = f"healed, back at {where}"
         return res
