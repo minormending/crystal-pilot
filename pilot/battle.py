@@ -329,13 +329,33 @@ class BattleEngine:
         return False
 
     def _switch_to(self, slot: int, out: BattleOutcome) -> None:
-        """Send out the grind target via the in-battle PKMN menu."""
+        """Send out the grind target via the in-battle PKMN menu.
+
+        Driven against the live cursor, which is `wMenuCursorY` here -- 1-based,
+        one row per party member plus CANCEL, and it **wraps**.
+
+        It used to press UP six times to normalise and then DOWN `slot` times,
+        which is the defect `choose_move` was written to avoid and which this
+        repo's own mutation self-check tests for by name. Wrapping is what makes
+        it wrong: six UP presses on a two-row list return to where they started,
+        on a four-row list they land two rows off, so whether the normalisation
+        works at all depends on the size of the party. With a full party and the
+        cursor left on CANCEL by a previous turn, it sends out the wrong
+        Pokemon -- and the only sign is a grind that trains something else.
+        """
         if not self.c.choose_battle_action(PKMN):
-            out.note("could not put the battle cursor on PKMN")
+            # Returning, not noting and carrying on. If the cursor never
+            # reached PKMN then the presses below land in an unknown menu, and
+            # the first two are A -- which from the battle menu picks FIGHT and
+            # then a move. Losing a turn is much better than that.
+            out.note("could not put the battle cursor on PKMN; skipping the switch")
+            return
         self.s.tick(30)
-        # Party list cursor starts at slot 0; step down to the wanted slot.
-        self.s.repeat("up", 6, hold=4, gap=4)
-        self.s.repeat("down", slot, hold=4, gap=4)
+        rows = self.r.party_count() + 1        # the party, plus CANCEL
+        if not self.c.drive_menu_cursor(slot + 1, rows):
+            out.note(f"could not reach party slot {slot + 1} in the PKMN list")
+            self.c.close_menus()
+            return
         self.s.tap("a")
         self.s.tick(20)
         # The submenu offers SWITCH / STATS / CANCEL, with SWITCH first.
@@ -344,7 +364,7 @@ class BattleEngine:
         b = self.r.battle()
         if b.active_slot != slot:
             out.note(f"switch to slot {slot} did not take (active={b.active_slot})")
-            self.c.close_menus(3)
+            self.c.close_menus()
 
     def _send_next_mon(self, out: BattleOutcome) -> bool:
         """Pick a replacement after a faint. False if nothing can fight."""

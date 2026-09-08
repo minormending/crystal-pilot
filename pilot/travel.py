@@ -15,17 +15,6 @@ from .battle import BattleEngine, BattlePolicy
 # the bound exists so a refused item cannot loop rather than to ration.
 MAX_HEALS_PER_MON = 12
 
-# Re-plan budget for a walk that crosses a route rather than a room.
-#
-# A planned walk is stopped by being knocked off the plan, and on a route that
-# is a wild encounter every few tiles -- each one costing a re-plan. Measured:
-# Route 30's item ball at (8,35) and its far fruit tree at (11,5) are thirty-five
-# tiles apart through grass, and `walk_to`'s default eight re-plans reached the
-# near tree and reported the other two *unreachable* -- which is the wrong word
-# for "ran out of budget", and the one that sends somebody looking at the
-# collision map.
-LONG_WALK_REPLANS = 24
-
 
 class Traveler:
     def __init__(self, session, reader, control, nav, world, gamedata, log=print):
@@ -220,14 +209,13 @@ class Traveler:
         return healed
 
     # --- what the map is holding -------------------------------------------
-    def things_here(self, include_taken: bool = False) -> list[dict]:
+    def things_here(self) -> list[dict]:
         """What this map is holding, nearest first.
 
         Item balls and fruit trees, from the disassembly's object list. An item
-        ball whose event flag is already set is dropped unless asked for --
-        that is the whole advantage of reading the source rather than work RAM:
-        the flag says in advance what is left, so the walk is not made for
-        nothing.
+        ball whose event flag is already set is dropped -- that is the whole
+        advantage of reading the source rather than work RAM: the flag says in
+        advance what is left, so the walk is not made for nothing.
 
         A tree has no flag, because a tree regrows. It is always offered, and
         pressing A is the only way to find out whether it has fruit today.
@@ -236,7 +224,7 @@ class Traveler:
         loc = self.r.location()
         out = []
         for thing in self.w.takeables.get(here, []):
-            if thing["event"] and not include_taken:
+            if thing["event"]:
                 # None is "cannot tell", which has to be walked to. Only a
                 # definite True is skipped.
                 if self.r.event_done(thing["event"]) is True:
@@ -326,8 +314,14 @@ class Traveler:
             sides.sort(key=lambda s: abs(s[0][0] - loc.x) + abs(s[0][1] - loc.y))
             for (sx, sy), facing in sides:
                 self._handle_battle()
-                self.n.walk_to(sx, sy, on_battle=self._handle_battle,
-                               replans=LONG_WALK_REPLANS)
+                # The default re-plan budget, deliberately. This asked for
+                # twenty-four for one commit, to reach Route 30's item ball
+                # thirty-five tiles of grass away -- and that was a symptom
+                # patch: `follow_path_to` was charging every wild encounter a
+                # re-plan, against a comment saying it did not. With the
+                # accounting fixed, eight is eight *obstacles* and the default
+                # reaches everything on the map. Verified by putting it back.
+                self.n.walk_to(sx, sy, on_battle=self._handle_battle)
                 at = self.r.location()
                 if (at.x, at.y) == (sx, sy):
                     self.n.face(facing)

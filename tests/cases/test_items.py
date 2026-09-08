@@ -102,17 +102,6 @@ def _(t):
     t.eq(numeric, [], "no stock entry is a number")
 
 
-@test("the cheapest of a set of candidates, ignoring what is not sold")
-def _(t):
-    src = str(t.source)
-    t.eq(I.cheapest(src, ["HYPER_POTION", "POTION", "SUPER_POTION"]), "POTION",
-         "cheapest potion")
-    t.eq(I.cheapest(src, ["MASTER_BALL", "GREAT_BALL", "POKE_BALL"]), "POKE_BALL",
-         "a Master Ball is not sold, so it cannot be cheapest")
-    t.eq(I.cheapest(src, ["MASTER_BALL"]), None, "nothing sold means no answer")
-    t.eq(I.cheapest(src, []), None, "and neither does nothing at all")
-
-
 @test("the pocket reader is only pointed at pockets it can decode")
 def _(t):
     # A key item has no quantity byte -- wKeyItems is d8bd and wNumBalls is

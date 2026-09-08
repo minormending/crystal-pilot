@@ -14,6 +14,8 @@ import re
 from collections import deque
 from pathlib import Path
 
+from . import items as I
+
 MAP_ATTR = re.compile(r"^\s*map_attributes\s+(\w+)\s*,\s*([A-Z0-9_]+)\s*,")
 CONNECTION = re.compile(r"^\s*connection\s+(north|south|east|west)\s*,\s*(\w+)\s*,\s*([A-Z0-9_]+)\s*,\s*(-?\d+)")
 WARP = re.compile(r"^\s*warp_event\s+(\d+)\s*,\s*(\d+)\s*,\s*([A-Z0-9_]+)\s*,\s*(\d+)")
@@ -276,7 +278,6 @@ class World:
 
     def shops_selling(self, name: str) -> tuple[str, ...]:
         """Every map with a standard counter that stocks `name`."""
-        from . import items as I
         return tuple(
             const for const, shop in sorted(self.shops.items())
             if name in I.sold_at(str(self.root), shop["marts"])
@@ -293,7 +294,6 @@ class World:
         Ties break on fewest legs first, then on the order `names` was given,
         so a caller that lists what it wants in preference order gets it.
         """
-        from . import items as I
         wanted = list(names)
         candidates: dict[str, str] = {}
         for const, shop in self.shops.items():

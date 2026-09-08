@@ -127,6 +127,3 @@ def validate_title(title) -> list[str]:
 
     return bad
 
-
-def usable(title) -> bool:
-    return not validate_title(title)

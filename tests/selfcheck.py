@@ -106,8 +106,8 @@ MUTATIONS = [
     (
         "species enum reads past the UNOWN restart",
         "pilot/gamedata.py",
-        "_parse_consts(pk, first_block_only=True).items()",
-        "_parse_consts(pk, first_block_only=False).items()",
+        "parse_consts(pk, first_block_only=True).items()",
+        "parse_consts(pk, first_block_only=False).items()",
         "UNOWN enum restart",
     ),
     (

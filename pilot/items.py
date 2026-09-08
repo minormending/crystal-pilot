@@ -329,19 +329,6 @@ def cures(source_root: str, status: str,
         found, key=lambda n: (len(all_statuses[n]), attrs[n]["price"] or 0, n)))
 
 
-def cheapest(source_root: str, names) -> str | None:
-    """Whichever of `names` costs least at a counter, or None if none is sold.
-
-    The decoder is asked which item is cheapest rather than the journey, so a
-    shopping errand does not have to hold a price list of its own.
-    """
-    attrs = attributes(source_root)
-    sold = [n for n in names if attrs.get(n, {}).get("for_sale")]
-    if not sold:
-        return None
-    return min(sold, key=lambda n: (attrs[n]["price"], n))
-
-
 def price(source_root: str, name: str) -> int:
     """What a counter charges for one, or 0 for something no counter sells."""
     attr = attributes(source_root).get(name)

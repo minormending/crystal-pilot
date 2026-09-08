@@ -218,9 +218,6 @@ class GameData:
     def map_pretty(self, group: int, number: int) -> str:
         return self.map_name(group, number).replace("_", " ").title()
 
-    def map_info(self, group: int, number: int) -> dict | None:
-        return self.maps.get((group, number))
-
     def find_map(self, name: str) -> dict:
         key = self._norm(name)
         table = {self._norm(k): v for k, v in self.maps_by_name.items()}

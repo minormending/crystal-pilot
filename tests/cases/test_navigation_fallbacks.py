@@ -184,3 +184,51 @@ def _(t):
     t.true(nav._find_grass_sweep(max_steps=300), "it found the grass")
     t.true(r.on_grass(), "and is standing on it")
     t.true(r.location().x > 5, "having gone the other way to get there")
+
+
+@test("a wild encounter does not cost a re-plan, only an obstacle does")
+def _(t):
+    # The comment in `follow_path_to` claimed this and the code did not do it:
+    # a battle inside the step loop broke out and the top of the while loop
+    # charged it a re-plan like any other derailment. So the budget was really
+    # "eight interruptions of any kind", and crossing a route spent it on
+    # encounters before arriving -- reporting `blocked` with the collision map
+    # perfectly happy about the path.
+    p = t.pilot("route30")
+    calls = {"battles": 0}
+
+    def clear():
+        calls["battles"] += 1
+        # Not a real battle; this only has to make the handler run.
+
+    # A goal thirty-five tiles away through grass, on the default budget. The
+    # old accounting could not reach it; the fixed accounting can.
+    res = p.nav.walk_to(11, 6, on_battle=clear)
+    t.true(res.moved or res.blocked, "it either arrived or gave up cleanly")
+    loc = p.reader.location()
+    t.eq((loc.x, loc.y), (11, 6), "and it arrived, on eight re-plans")
+
+
+@test("the party list is driven by its cursor, which wraps")
+def _(t):
+    from pilot.control import PKMN
+    p = t.pilot("grass_cyndaquil", timeout=600)
+    c, s = p.control, p.session
+    t.give_balls(p)
+    t.into_wild_battle(p)
+    t.true(c.choose_battle_action(PKMN), "the PKMN list opens")
+    s.tick(40)
+    rows = p.reader.party_count() + 1        # the party, plus CANCEL
+    # Park it on CANCEL, which is where a previous turn leaves it.
+    t.true(c.drive_menu_cursor(rows, rows), "parked on CANCEL")
+    # `_switch_to` used to press UP six times to normalise and then DOWN.
+    # Wrapping is what makes that wrong: six presses on a two-row list return
+    # to where they started, on a four-row list they land two rows off -- so
+    # whether it works depends on the size of the party, and with a full party
+    # it sends out the wrong Pokemon.
+    s.repeat("up", 6, hold=4, gap=4)
+    t.eq(s.rb("wMenuCursorY"), rows, "six UP presses changed nothing")
+    # Reading the cursor gets there from anywhere.
+    t.true(c.drive_menu_cursor(1, rows), "driven to slot 1")
+    t.eq(s.rb("wMenuCursorY"), 1, "and it is on slot 1")
+    c.close_menus()

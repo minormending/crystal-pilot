@@ -66,15 +66,6 @@ class Navigator:
             self.s.tick(3)
         return StepResult(blocked=True)
 
-    def walk(self, direction: str, tiles: int) -> StepResult:
-        """Step `tiles` times in one direction, stopping on interruption."""
-        last = StepResult()
-        for _ in range(tiles):
-            last = self.step(direction)
-            if last.interrupted or last.blocked:
-                return last
-        return last
-
     def face(self, direction: str) -> None:
         """Turn without necessarily moving (a tap is a turn when blocked)."""
         self.s.tap(direction, hold=4, gap=6)
@@ -116,6 +107,14 @@ class Navigator:
         # navigation failures -- no progress is lost -- so they get their own
         # generous allowance instead of eating the replan budget, which exists
         # for genuine obstacles.
+        # ...which is what the line above claimed and the code did not do. A
+        # battle inside the step loop set `derailed` and broke, and the top of
+        # the while loop then charged it a re-plan like any other obstacle -- so
+        # the budget was really "eight interruptions of any kind", and crossing
+        # a route spends it on encounters before reaching anything. Measured:
+        # Route 30's item ball, thirty-five tiles of grass away, reported
+        # `blocked` with the collision map perfectly happy about the path.
+        # Only a genuine obstacle is charged now; `max_battles` bounds the rest.
         battles = 0
         attempts = 0
         cleared_once = False
@@ -130,7 +129,6 @@ class Navigator:
                 if self.r.in_battle():
                     return StepResult(battle=True)   # handler left it running
                 continue
-            attempts += 1
             if self.r.location().key != from_key:
                 return StepResult(moved=True, map_changed=True)
             path = cm.path_to(goal, allow_warp_goal=allow_warp_goal, avoid=avoid)
@@ -147,7 +145,9 @@ class Navigator:
                     return StepResult(blocked=True)
             if not path:
                 return StepResult(moved=True)
-            derailed = False
+            # "battle" or "obstacle", and the distinction is the budget: only an
+            # obstacle means the *plan* was wrong and a re-plan is owed.
+            derailed = None
             for d in path:
                 before = self.r.location()
                 res = None
@@ -164,22 +164,24 @@ class Navigator:
                     on_battle()
                     if self.r.in_battle():
                         return StepResult(battle=True)
-                    derailed = True
+                    derailed = "battle"
                     break
                 if res.map_changed or self.r.location().key != from_key:
                     return StepResult(moved=True, map_changed=True)
                 if not res.moved:
                     dx, dy = DELTA[d]
                     avoid.add((before.x + dx, before.y + dy))
-                    derailed = True
+                    derailed = "obstacle"
                     break
                 after = self.r.location()
                 dx, dy = DELTA[d]
                 if (after.x, after.y) != (before.x + dx, before.y + dy):
-                    derailed = True    # ledge jump or forced movement
+                    derailed = "obstacle"   # ledge jump or forced movement
                     break
-            if not derailed:
+            if derailed is None:
                 return StepResult(moved=True)
+            if derailed == "obstacle":
+                attempts += 1
         return StepResult(blocked=True)
 
     def _walk_to_greedy(self, x: int, y: int, max_steps: int = 80) -> StepResult:
