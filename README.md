@@ -713,7 +713,7 @@ symbol-table parser and the real capture logic run against it, so the learned-
 damage guard, the knockout reporting, the weakening bound and the half-read
 battle check are all verified on every push.
 
-The remaining 86 are genuine integration tests — walking, the intro, crossing
+The remaining 153 are genuine integration tests — walking, the intro, crossing
 maps, a real save — and those still want a ROM. Only slow-to-reach situations are
 stored; being *in* a battle or having balls in the bag is set up at test time.
 The runner is deliberately dependency-free — no pytest to install or remember.
@@ -723,12 +723,20 @@ those bugs one at a time and checks the matching test goes red, reverting every
 mutation afterwards:
 
 ```
+caught  a battle the party lost is reported as won
+caught  a grind collects its counts and drops them
+caught  the object structs are read past their end
+caught  the item attribute pattern cannot read a flag expression
 caught  move choice counts presses instead of reading the cursor
 caught  the intro is left to mash A through the NAME menu
-caught  nickname prompts are answered with their default of YES
 caught  collision map reads the wrong quadrant of each block
-12 caught, 0 missed
+16 caught, 0 missed
 ```
+
+The first four are recent, and each is a bug that was live in this repository
+rather than a hypothetical. They are here because the mutation list is the only
+thing that proves the *test* for each one works — a test written alongside a fix
+is written against a codebase where the bug is already gone.
 
 It has already earned its keep. Two tests passed mutations they should have
 caught: one only exercised a single battle, when the bug needed a second turn to

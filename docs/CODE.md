@@ -1608,7 +1608,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ a5c7550ff58f -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ 672634fd119a -->
 
 ```bash
 ./run-tests                      # everything
@@ -1629,8 +1629,27 @@ were decisions about a game state rather than anything needing a cartridge. The
 real readers, the real symbol-table parser, the real capture logic and the
 navigator's fallbacks all run against it.
 
-The other 86 are genuine integration tests — walking, the intro, crossing maps,
+The other 153 are genuine integration tests — walking, the intro, crossing maps,
 a real save — and skip themselves without a ROM rather than failing.
+
+**`--self-check` re-introduces sixteen bugs one at a time** and checks the test
+meant to catch each one goes red, reverting every mutation afterwards. That is
+the only thing which proves a *test* works: a test written alongside a fix is
+written against a codebase where the bug is already gone, so it has never been
+seen to fail.
+
+Every entry is a bug that was live in this repository. Four are recent, and all
+four had the same shape — the code did something plausible and reported success:
+a battle the party *lost* reported as won, a grind that collected every count
+and dropped them at the last step, an object array read three entries past its
+end into its neighbour, and an item pattern that quietly matched 232 of 256
+rows.
+
+The mutation's `find` string must appear **exactly once**, so a mutation cannot
+silently no-op after the code it targets has moved. That bites: one of the four
+above skipped on its first run, because `res.stats = stats` at one indent is a
+substring of the same line at a deeper indent, so the anchor matched twice. A
+skip is reported rather than counted, which is the whole point of the rule.
 
 <details>
 <summary><b>Advanced detail:</b> fixtures, and two ways a test can lie</summary>

@@ -33,6 +33,53 @@ ROOT = Path(__file__).resolve().parent.parent
 # mutation below covers it.
 MUTATIONS = [
     (
+        # The fix is the *order*: LostBattle fires on the same tick
+        # wBattleMode clears, so an "is it over?" test that runs first calls a
+        # wipe a win -- and every other signal agrees with it, because a
+        # white-out heals the party.
+        "a battle the party lost is reported as won",
+        "pilot/battle.py",
+        '            if "lost_battle" in evs:\n'
+        '                return "lost"\n'
+        '            if not self.r.in_battle():\n'
+        '                return "ended"',
+        '            if not self.r.in_battle():\n'
+        '                return "ended"\n'
+        '            if "lost_battle" in evs:\n'
+        '                return "lost"',
+        "blacking out is reported as a loss",
+    ),
+    (
+        "a grind collects its counts and drops them",
+        "pilot/tasks/grind.py",
+        # The comment comes with it: bare `res.stats = stats` at this indent is
+        # a substring of the same line at the deeper indent used by an early
+        # return, so the anchor would match twice and the mutation would skip.
+        "            # correctly, thrown away at the last step.\n"
+        "            res.stats = stats\n",
+        "",
+        "grind that did something reports",
+    ),
+    (
+        # Thirteen structs, not sixteen: index 15 reads its coordinates from
+        # inside wMapObjects, so an unspawned placement reads as somebody
+        # standing on that tile.
+        "the object structs are read past their end",
+        "pilot/collision.py",
+        "    STRUCT_COUNT = 13",
+        "    STRUCT_COUNT = 16",
+        "live read stops at NUM_OBJECT_STRUCTS",
+    ),
+    (
+        # `property` can be `CANT_SELECT | CANT_TOSS`, and one word there drops
+        # twenty-four rows without a word.
+        "the item attribute pattern cannot read a flag expression",
+        "pilot/items.py",
+        'FIELD = r"[\\w\\s|]+?"',
+        'FIELD = r"\\w+"',
+        "attribute row in the file is parsed",
+    ),
+    (
         "move choice counts presses instead of reading the cursor",
         "pilot/control.py",
         '''        target = index + 1
