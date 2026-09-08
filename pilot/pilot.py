@@ -19,6 +19,7 @@ from .tasks.grind import GrindTask
 from .tasks.hunt import HuntTask
 from .tasks.moment import CaptureTask, FightTask, HealTask
 from .tasks.shop import ShopTask
+from .tasks.take import TakeTask
 from .tasks.trainers import TrainerSweepTask
 from .timeline import CheckpointWriter, Timeline
 from .travel import Traveler
@@ -304,6 +305,15 @@ class Pilot:
         if not self.collision.calibrated:
             self.calibrate()
         task = ShopTask(self.session, self.reader, self.control, self.nav,
+                        self.world, self.gamedata, self.traveler, self.saver,
+                        self.backups, log=self.log)
+        return task.run(**kwargs)
+
+    def take(self, **kwargs):
+        self.mark_undo("take")
+        if not self.collision.calibrated:
+            self.calibrate()
+        task = TakeTask(self.session, self.reader, self.control, self.nav,
                         self.world, self.gamedata, self.traveler, self.saver,
                         self.backups, log=self.log)
         return task.run(**kwargs)

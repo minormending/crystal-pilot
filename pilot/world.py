@@ -25,6 +25,23 @@ CLERK = re.compile(r"^\s*object_event\s+(\d+)\s*,\s*(\d+)\s*,\s*SPRITE_CLERK\b")
 # quantity box, so buying five of something there is a different sequence.
 SHOP = re.compile(r"^\s*pokemart\s+(MARTTYPE_\w+)\s*,\s*([A-Z0-9_]+)")
 MARTTYPE_STANDARD = "MARTTYPE_STANDARD"
+# An item lying on the ground. The script name is the join to `itemball ITEM`
+# elsewhere in the same file, which is the only place the item is named; the
+# event flag is what says whether it is still there.
+ITEMBALL = re.compile(
+    r"^\s*object_event\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*\w+\s*,\s*\w+\s*,"
+    r"\s*-?\d+\s*,\s*-?\d+\s*,\s*-?\d+\s*,\s*-?\d+\s*,\s*\w+\s*,"
+    r"\s*OBJECTTYPE_ITEMBALL\s*,\s*\d+\s*,\s*(\w+)\s*,\s*(\S+?)\s*$"
+)
+# A fruit tree is OBJECTTYPE_SCRIPT like any NPC, so the sprite is the only
+# thing that identifies one. Which is also why it has no event flag to read:
+# a tree regrows, and what it gives is decided by data/items/fruit_trees.asm
+# rather than by the object.
+FRUIT_TREE = re.compile(
+    r"^\s*object_event\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*SPRITE_FRUIT_TREE\b")
+# `LabelName:` at column zero, then `itemball ANTIDOTE` inside it.
+SCRIPT_LABEL = re.compile(r"^([A-Za-z_]\w*):\s*$")
+ITEMBALL_GIVES = re.compile(r"^\s*itemball\s+([A-Z0-9_]+)")
 # object_event x, y, SPRITE, MOVEMENT, rx, ry, h1, h2, PAL, TYPE, n, script, event
 TRAINER = re.compile(
     r"^\s*object_event\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,"
@@ -51,6 +68,8 @@ class World:
         self.trainers: dict[str, list[dict]] = {}
         # MAP_CONST -> {clerk: (x, y), marts: (MART_CONST, ...)}
         self.shops: dict[str, dict] = {}
+        # MAP_CONST -> [ {x, y, kind, item, event} ]
+        self.takeables: dict[str, list[dict]] = {}
         self._load_connections()
         self._load_warps()
 
@@ -95,10 +114,24 @@ class World:
             found_trainers: list[dict] = []
             marts: list[str] = []
             clerk: tuple[int, int] | None = None
+            balls: list[dict] = []
+            trees: list[dict] = []
+            # script label -> the item its `itemball` line hands over. Built in
+            # the same pass, and the objects are joined to it afterwards --
+            # a map's object list sits at the bottom of the file, well after the
+            # scripts it names, but nothing guarantees that so the join waits.
+            gives: dict[str, str] = {}
+            label: str | None = None
             in_warps = False
             for raw in f.read_text(errors="replace").splitlines():
                 line = raw.split(";", 1)[0]
                 stripped = line.strip()
+                m = SCRIPT_LABEL.match(line)
+                if m:
+                    label = m.group(1)
+                m = ITEMBALL_GIVES.match(line)
+                if m and label:
+                    gives[label] = m.group(1)
                 # Warps are the only thing that needs to know where in the file
                 # it is, because `warp_event` appears in exactly one block.
                 if stripped.startswith("def_warp_events"):
@@ -126,6 +159,16 @@ class World:
                 # shop at all, because it is a place it will walk to.
                 if m and m.group(1) == MARTTYPE_STANDARD and m.group(2) not in marts:
                     marts.append(m.group(2))
+                m = ITEMBALL.match(line)
+                if m:
+                    x, y, script, event = m.groups()
+                    balls.append({"x": int(x), "y": int(y), "kind": "ball",
+                                  "script": script,
+                                  "event": None if event == "-1" else event})
+                m = FRUIT_TREE.match(raw)
+                if m:
+                    trees.append({"x": int(m.group(1)), "y": int(m.group(2)),
+                                  "kind": "tree", "item": None, "event": None})
                 m = TRAINER.match(line)
                 if m:
                     x, y, sprite, _move, sight, script, event = m.groups()
@@ -134,6 +177,10 @@ class World:
                         "sight": int(sight), "script": script,
                         "event": None if event == "-1" else event,
                     })
+            for ball in balls:
+                ball["item"] = gives.get(ball.pop("script"))
+            if balls or trees:
+                self.takeables[const] = balls + trees
             if found_trainers:
                 self.trainers[const] = found_trainers
             if entries:

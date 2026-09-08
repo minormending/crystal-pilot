@@ -171,6 +171,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "Default: balls if the bag has none, else potions.")
     sh.add_argument("--want", type=int, default=5,
                     help="how many to end up carrying (default 5)")
+    tkp = sub.add_parser("take",
+                         help="pick up the item balls and fruit trees on this map")
+    tkp.add_argument("--max-things", type=int, default=8,
+                     help="how many to visit (default 8)")
     sub.add_parser("status", help="print party, location and nearest Pokemon Center")
 
     p = sub.add_parser("play", help="playable window with inline task dispatch")
@@ -577,6 +581,14 @@ def cmd_heal(pilot, args) -> int:
 
 
 
+def cmd_take(pilot, args) -> int:
+    pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 4,
+                                    max_wall_seconds=args.timeout))
+    result = pilot.take(max_things=args.max_things)
+    print(result.render())
+    return 0 if result.ok else 1
+
+
 def cmd_shop(pilot, args) -> int:
     pilot.session.set_budget(Budget(max_frames=60 * 60 * 60 * 4,
                                     max_wall_seconds=args.timeout))
@@ -674,6 +686,7 @@ IN_GAME = {
     "status": cmd_status, "hunt": cmd_hunt, "battle": cmd_battle,
     "capture": cmd_capture, "heal": cmd_heal, "catch": cmd_catch,
     "trainers": cmd_trainers, "grind": cmd_grind, "shop": cmd_shop,
+    "take": cmd_take,
 }
 
 

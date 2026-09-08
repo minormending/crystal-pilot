@@ -81,10 +81,19 @@ class Navigator:
 
     # --- goal-directed -----------------------------------------------------
     def walk_to(self, x: int, y: int, max_steps: int = 80,
-                on_battle=None) -> StepResult:
-        """Walk to (x, y) on the current map, planning a route when possible."""
+                on_battle=None, replans: int | None = None) -> StepResult:
+        """Walk to (x, y) on the current map, planning a route when possible.
+
+        `replans` is the real budget for a planned walk, not `max_steps`: what
+        stops a long walk is being knocked off the plan by wild encounters, and
+        each one costs a re-plan. The default of eight is right for a walk
+        inside a room and much too small for a route -- Route 30's item ball
+        and its far fruit tree are thirty-five tiles apart through grass, and
+        eight re-plans gets about halfway. Callers crossing a route say so.
+        """
         if self.collision is not None and self.collision.calibrated:
-            return self.follow_path_to((x, y), on_battle=on_battle)
+            kwargs = {} if replans is None else {"replans": replans}
+            return self.follow_path_to((x, y), on_battle=on_battle, **kwargs)
         return self._walk_to_greedy(x, y, max_steps=max_steps)
 
     # --- planned movement --------------------------------------------------

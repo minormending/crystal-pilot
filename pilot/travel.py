@@ -15,6 +15,17 @@ from .battle import BattleEngine, BattlePolicy
 # the bound exists so a refused item cannot loop rather than to ration.
 MAX_HEALS_PER_MON = 12
 
+# Re-plan budget for a walk that crosses a route rather than a room.
+#
+# A planned walk is stopped by being knocked off the plan, and on a route that
+# is a wild encounter every few tiles -- each one costing a re-plan. Measured:
+# Route 30's item ball at (8,35) and its far fruit tree at (11,5) are thirty-five
+# tiles apart through grass, and `walk_to`'s default eight re-plans reached the
+# near tree and reported the other two *unreachable* -- which is the wrong word
+# for "ran out of budget", and the one that sends somebody looking at the
+# collision map.
+LONG_WALK_REPLANS = 24
+
 
 class Traveler:
     def __init__(self, session, reader, control, nav, world, gamedata, log=print):
@@ -207,6 +218,137 @@ class Traveler:
             if after.hp >= after.max_hp:
                 healed += 1
         return healed
+
+    # --- what the map is holding -------------------------------------------
+    def things_here(self, include_taken: bool = False) -> list[dict]:
+        """What this map is holding, nearest first.
+
+        Item balls and fruit trees, from the disassembly's object list. An item
+        ball whose event flag is already set is dropped unless asked for --
+        that is the whole advantage of reading the source rather than work RAM:
+        the flag says in advance what is left, so the walk is not made for
+        nothing.
+
+        A tree has no flag, because a tree regrows. It is always offered, and
+        pressing A is the only way to find out whether it has fruit today.
+        """
+        here = self.current_const()
+        loc = self.r.location()
+        out = []
+        for thing in self.w.takeables.get(here, []):
+            if thing["event"] and not include_taken:
+                # None is "cannot tell", which has to be walked to. Only a
+                # definite True is skipped.
+                if self.r.event_done(thing["event"]) is True:
+                    continue
+            out.append(thing)
+        out.sort(key=lambda t: abs(t["x"] - loc.x) + abs(t["y"] - loc.y))
+        return out
+
+    def take_here(self, max_things: int = 8) -> dict:
+        """Pick up everything this map is holding. -> a dict describing what came.
+
+        The bag is the evidence, not the presses -- and unlike a heal, the bag
+        is the *only* evidence available: an item ball gives an item and moves
+        nothing else. So each pickup is bracketed by a read of the pocket.
+        """
+        here = self.current_const()
+        things = self.things_here()
+        if not things:
+            return {"ok": True, "took": [], "message": f"{here} has nothing left"}
+        took: list[str] = []
+        empty: list[str] = []
+        unreachable: list[str] = []
+        for thing in things[:max_things]:
+            label = thing["item"] or ("a fruit tree" if thing["kind"] == "tree"
+                                      else "something")
+            before = self._pocket_totals()
+            if not self.approach(thing["x"], thing["y"]):
+                unreachable.append(f"{label} at ({thing['x']},{thing['y']})")
+                continue
+            self.s.tap("a")
+            # `run_scripts` and nothing else. It has a real level signal
+            # (wScriptMode) so it stops the instant the pickup script ends,
+            # and following it with `advance_text` is actively wrong: those
+            # taps land with no script running, on a player still *facing the
+            # tree*, and start its script over again. Measured -- the first
+            # thing was taken, and then every later walk on that map reported
+            # `blocked` because wScriptMode was still 1 from the A press that
+            # re-opened the tree. Which is the hazard `run_scripts` has
+            # documented since it was written: "one extra A while facing an NPC
+            # would start their dialogue all over again."
+            self.c.run_scripts()
+            self.n.settle()
+            gained = self._gained(before)
+            if gained:
+                took += gained
+                self.log(f"  take: {', '.join(gained)}")
+            else:
+                empty.append(label)
+        # Two different outcomes, and lumping them together made the second run
+        # on a route report failure. **Reaching something that turns out to be
+        # empty is not a failure** -- a fruit tree has no event flag, so it is
+        # offered every time and gives fruit once a day; pressing A and finding
+        # nothing is the answer, and the only way to get it. Not being able to
+        # *reach* something is the failure, because that is the pilot's problem
+        # rather than the map's.
+        parts = []
+        if took:
+            parts.append("took " + ", ".join(took))
+        if empty:
+            parts.append(f"{len(empty)} had nothing today")
+        if unreachable:
+            parts.append(f"could not reach {', '.join(unreachable)}")
+        return {"ok": not unreachable, "took": took, "empty": empty,
+                "unreachable": unreachable,
+                "message": "; ".join(parts) or f"{here} gave nothing"}
+
+    def approach(self, tx: int, ty: int, attempts: int = 3) -> bool:
+        """Stand next to (tx, ty) facing it. -> whether it worked.
+
+        Every side is tried, nearest first, because which one is open is a fact
+        about the map rather than a convention -- and sometimes only one is.
+        Route 30's ball at (8,35) is reachable from three sides and its fruit
+        tree at (5,39) from one.
+
+        A wild encounter on the way is not a side refusing. On a route it is the
+        ordinary case rather than the exception, so the battle is escaped and
+        the walk asked again from wherever it stopped, which converges.
+        """
+        cm = self.n.collision
+        sides = [((tx, ty + 1), "up"), ((tx, ty - 1), "down"),
+                 ((tx + 1, ty), "left"), ((tx - 1, ty), "right")]
+        if cm is not None and cm.calibrated:
+            walkable = [s for s in sides if cm.walkable(*s[0])]
+            sides = walkable or sides
+        for _ in range(attempts):
+            loc = self.r.location()
+            sides.sort(key=lambda s: abs(s[0][0] - loc.x) + abs(s[0][1] - loc.y))
+            for (sx, sy), facing in sides:
+                self._handle_battle()
+                self.n.walk_to(sx, sy, on_battle=self._handle_battle,
+                               replans=LONG_WALK_REPLANS)
+                at = self.r.location()
+                if (at.x, at.y) == (sx, sy):
+                    self.n.face(facing)
+                    return True
+        return False
+
+    def _pocket_totals(self) -> dict[int, int]:
+        out = {}
+        for pocket in (I.ITEM_POCKET, I.BALL_POCKET):
+            for iid, qty in self.r.pocket(pocket):
+                out[iid] = out.get(iid, 0) + qty
+        return out
+
+    def _gained(self, before: dict[int, int]) -> list[str]:
+        after = self._pocket_totals()
+        gained = []
+        for iid, qty in after.items():
+            delta = qty - before.get(iid, 0)
+            if delta > 0:
+                gained.append(f"{delta}x {self.gd.item_name(iid)}")
+        return gained
 
     # --- the counter -------------------------------------------------------
     def restock(self, names, want: int = 5) -> dict:

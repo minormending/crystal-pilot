@@ -256,6 +256,28 @@ class GameStateReader:
             return 0
         return next((q for i, q in self.pocket(which) if i == iid), 0)
 
+    # --- event flags -------------------------------------------------------
+    def event_done(self, name: str) -> bool | None:
+        """Has this EVENT_* flag been set? None when it cannot be told.
+
+        Bit-indexed into wEventFlags: byte `index // 8`, bit `index % 8`.
+
+        This is the thing the mobile port could not do, and said so honestly --
+        over there an item ball that has already been taken is still in the
+        object list, so the only way to find out whether anything is left is to
+        walk over and press A. Here the disassembly names the flag each object
+        carries, so the question can be answered before the walk.
+
+        `None` rather than False for a flag this build does not name, because
+        "already taken" and "cannot tell" lead to different decisions: the
+        first skips the walk and the second has to make it.
+        """
+        index = self.gd.events.get(name)
+        if index is None:
+            return None
+        byte = self.s.rb(self.s.sym.addr("wEventFlags") + index // 8)
+        return bool(byte & (1 << (index % 8)))
+
     def money(self) -> int:
         """How much the player is carrying.
 

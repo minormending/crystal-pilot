@@ -127,6 +127,15 @@ class GameData:
         }
         self.items_by_id: dict[int, str] = {v: k for k, v in self.items.items()}
 
+        # EVENT_* -> its bit index into wEventFlags. Optional: a cartridge
+        # whose disassembly does not ship this file still drives, it just
+        # cannot tell an item it has already picked up from one it has not.
+        events = self.root / "constants" / "event_flags.asm"
+        self.events: dict[str, int] = (
+            {k: v for k, v in parse_consts(events).items()
+             if k.startswith("EVENT_")} if events.exists() else {}
+        )
+
         self.maps: dict[tuple[int, int], dict] = _parse_maps(mapc)
         self.maps_by_name: dict[str, dict] = {v["name"]: v for v in self.maps.values()}
 
