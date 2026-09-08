@@ -214,7 +214,7 @@ def capture_task(t, *, enemy_hp=20, enemy_max=20, party=1, balls=10,
         session.wram = wram()
         return outcome
 
-    def _watch(before_party):
+    def _watch(before_party, before_box):
         task.calls.append("watch")
         return watch(task) if callable(watch) else watch
 

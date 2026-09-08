@@ -105,7 +105,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py pilot/screen.py pilot/items.py pilot/advice.py @ 12af0d601e62 -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py pilot/screen.py pilot/items.py pilot/advice.py @ 320665ebed98 -->
 
 Roughly 11,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -233,7 +233,7 @@ output unproducible.
 
 ### `session.py` — PyBoy, hooks, and the input model
 
-<!-- covers: pilot/session.py @ 4cb00ca94ec8 -->
+<!-- covers: pilot/session.py @ 68071694834e -->
 
 Owns the emulator. Runs frames, reads memory, registers the hooks, and holds the
 queue of events they produce.
@@ -247,6 +247,14 @@ another bank's bytes for a good fraction of frames, which looks like random
 corruption of the party and battle state. Every access in `session.py` is
 bank-qualified; `WRAM_SWITCHABLE = range(0xD000, 0xE000)` is the guard.
 
+**And so is cartridge RAM, which took longer to matter.** `SRAM_SWITCHABLE =
+range(0xA000, 0xC000)` is the same guard for the other banked window, added when
+the boxes were first read: `sBoxCount` is `01:ad10`, and unbanked it returns
+whichever bank the game last mapped. Nothing read an `s`-prefixed symbol until
+then, which is why the window was not there. One difference from WRAM worth the
+line — bank 0 is a real cartridge RAM bank, so the `bank or 1` default that
+WRAM uses would be wrong here; the symbol's bank is taken as given.
+
 **Rendering is a switch, not a constant.** With a window open, drawing every
 frame throttles the emulator to a few hundred fps — fine for playing, far too
 slow for a task that needs hundreds of thousands of frames. `set_render(False)`
@@ -256,7 +264,7 @@ during a task is the difference between 470× real time and unusable.
 
 ### `symbols.py` — where things live
 
-<!-- covers: pilot/symbols.py @ 27d952cbe007 -->
+<!-- covers: pilot/symbols.py @ 724f6f7ea962 -->
 
 Parses the `.sym` file, resolves names to bank-qualified addresses, and holds the
 struct offsets (`PARTY_STRUCT`, the party-mon field layout, and so on).
@@ -299,7 +307,7 @@ where it started.
 
 ### `state.py` — what the game is doing right now
 
-<!-- covers: pilot/state.py @ c62686921bb6 -->
+<!-- covers: pilot/state.py @ 0f5f03aeb5fc -->
 
 Typed reads: location, party, the battle, both readable bag pockets, the wallet,
 the badge count, and the game's event flags. Every read goes through a symbol,
@@ -310,6 +318,12 @@ number, because the game does not keep one. It is read for exactly one purpose:
 **a badge is the thing that opens a route the game was refusing**, so it is what
 invalidates `travel_to`'s written-off legs — see
 [Moving around](#6-moving-around).
+
+`box_count()` is the one read that is not in work RAM at all. `sBoxCount` lives
+in cartridge RAM, and it is the evidence a catch made with a **full party** has:
+the party never moves, so without it a boxed catch reads exactly like a getaway
+— see [Catching](#catching). `None` rather than 0 when the build does not name
+the symbol, the same distinction `event_done` and `live_objects` make.
 
 `screen()` is the door onto `screen.py`, and it takes a *fresh* read every
 time rather than caching one. That is the point: it gets asked when something
@@ -367,7 +381,7 @@ it.
 
 ### `gamedata.py`, `wild.py`, `items.py` — what the cartridge knows
 
-<!-- covers: pilot/gamedata.py pilot/wild.py pilot/items.py @ f246c1b9167c -->
+<!-- covers: pilot/gamedata.py pilot/wild.py pilot/items.py @ fd834756994c -->
 
 Species names, move power and type, map names, walkability tables, event flag
 indices, which wild Pokémon appear where, and everything about the bag — all
@@ -538,7 +552,7 @@ player standing at (7,53).
 
 ## 4. Hooks: the game asks, we answer
 
-<!-- covers: pilot/symbols.py pilot/session.py @ c53d56dc3dc9 -->
+<!-- covers: pilot/symbols.py pilot/session.py @ 59e4d0146fd3 -->
 
 This is the spine of the whole design. Instead of polling memory to guess what
 the game wants, the pilot sets a callback on the ROM routine that *is* the
@@ -1182,7 +1196,7 @@ counting `session.presses` was measuring a list that movement never touches.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 6b064cbfc6ea -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 8da4640ec3aa -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -1209,7 +1223,7 @@ something is the pilot's problem and is reported as blocked.
 
 ### Five that act on where you already are
 
-<!-- covers: pilot/tasks/moment.py pilot/tasks/shop.py pilot/tasks/take.py @ 27a20f0b5c60 -->
+<!-- covers: pilot/tasks/moment.py pilot/tasks/shop.py pilot/tasks/take.py @ 185c7e403ba0 -->
 
 Every searching task above goes *looking* for something. These do the obvious
 thing with the situation in front of you and take no target:
@@ -1217,7 +1231,7 @@ thing with the situation in front of you and take no target:
 | Command | Does | Refuses when |
 | --- | --- | --- |
 | `battle` | plays out the battle you are in, wild or trainer | you are not in one |
-| `capture` | weakens and throws at the wild Pokémon you are facing | not in a battle · it is a trainer's · party full · no balls |
+| `capture` | weakens and throws at the wild Pokémon you are facing | not in a battle · it is a trainer's · no balls · party *and* box full |
 | `heal` | cures and heals from the bag, then walks if it must | you are in a battle · no party |
 | `take` | picks up what this map is still holding | you are in a battle |
 | `shop` | buys more of what has run out | you are in a battle · nothing sold anywhere stocks it |
@@ -1365,10 +1379,36 @@ flowchart TD
     B -- no --> NB["no_balls"]
     B -- yes --> TH["throw"]
     TH --> WT{"watch the throw"}
-    WT -- caught --> OK["caught"]
+    WT -- "party grew" --> OK["caught"]
+    WT -- "box grew" --> BX["boxed<br/>(the party was full)"]
     WT -- "broke free" --> B
-    WT -- "got away" --> GA["got_away"]
+    WT -- "neither moved" --> GA["got_away"]
 ```
+
+**A full party is not a refusal, and the box is why.** The game handles six
+carried perfectly well: "Gotcha!", the nickname question, then *"<name> was sent
+to BILL's PC."* The party never moves off six and one ball leaves the bag — so
+read through the party alone, a boxed catch is indistinguishable from a getaway,
+and that missing *evidence* is what used to be refused rather than the situation.
+
+`sBoxCount` is the evidence. It is a count in **cartridge RAM** rather than work
+RAM — `01:ad10` — which made it the first symbol here to need the `0xA000-0xC000`
+window banked in `Session._resolve`; unbanked, it returns whichever bank the game
+last mapped. Measured: party stayed at six, box went 0 → 1, one ball gone.
+
+The screen was tried first and lost, which is the part worth recording. The
+phrase is in the disassembly (`_BallSentToPCText`, which
+`engine/items/item_effects.asm` points the ball at) so it could be parsed rather
+than hardcoded — but by the time the battle reports `ended`, the engine's own
+pump has advanced the text and the tilemap is blank. A count is still there
+afterwards, needs no alphabet, and works on a translated hack without being
+told. The mobile port matches the sentence and therefore keeps the English in a
+per-cartridge profile, because it has no source tree to read the count's name
+out of.
+
+Two refusals remain, and each names what is actually in the way: a build whose
+symbols do not include `sBoxCount` cannot tell the two outcomes apart, and a
+full party *with a full box* has nowhere to put it.
 
 **Weakening is guarded by what it has already done.** A ball's odds turn on how
 much HP is left, so weakening first is worth real balls — but a knockout loses
@@ -1808,7 +1848,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ c522c650c2cc -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ a8f5508d38ab -->
 
 ```bash
 ./run-tests                      # everything
@@ -1817,7 +1857,7 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-306 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+309 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
 **126 of them need nothing but the repository**, which is what CI has: the
@@ -1829,10 +1869,10 @@ were decisions about a game state rather than anything needing a cartridge. The
 real readers, the real symbol-table parser, the real capture logic and the
 navigator's fallbacks all run against it.
 
-The other 180 are genuine integration tests — walking, the intro, crossing maps,
+The other 183 are genuine integration tests — walking, the intro, crossing maps,
 a real save — and skip themselves without a ROM rather than failing.
 
-**`--self-check` re-introduces twenty-six bugs one at a time** and checks the test
+**`--self-check` re-introduces twenty-eight bugs one at a time** and checks the test
 meant to catch each one goes red, reverting every mutation afterwards. That is
 the only thing which proves a *test* works: a test written alongside a fix is
 written against a codebase where the bug is already gone, so it has never been

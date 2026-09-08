@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+from .. import symbols as S
 from ..control import FIGHT
 from .base import TaskLifecycle, TaskResult
 from .search import SearchStats, WildSearch
@@ -92,11 +93,26 @@ class CatchTask(TaskLifecycle):
             res.status = "error"
             res.message = "say what to catch: --species NAME, --shiny, or both"
             return res
-        if self.r.party_count() >= 6:
-            res.status = "blocked"
-            res.message = ("the party is full -- a caught Pokemon would go to the "
-                           "PC, which this task does not handle. Free a slot first.")
-            return res
+        if self.r.party_count() >= S.MAX_PARTY:
+            # The game handles a full party perfectly well; what a full party
+            # costs is the *evidence*, since the party never moves and a boxed
+            # catch then reads exactly like a getaway. So the refusals here are
+            # about the box rather than about the party, and each names the
+            # thing that is actually in the way.
+            box = self.r.box_count()
+            if box is None:
+                res.status = "blocked"
+                res.message = ("the party is full and this build does not name "
+                               "sBoxCount -- so a catch that went to the PC "
+                               "could not be told from one that got away. "
+                               "Free a party slot first.")
+                return res
+            if box >= S.MONS_PER_BOX:
+                res.status = "blocked"
+                res.message = (f"the party is full and so is the box "
+                               f"({box}/{S.MONS_PER_BOX}) -- there is nowhere "
+                               f"to put it. Free a slot in either.")
+                return res
 
         want_id = None
         if species is not None:
@@ -129,6 +145,7 @@ class CatchTask(TaskLifecycle):
         memory = Damage()
         t0 = time.monotonic()
         caught = None
+        boxed = False
         blocked = None
 
         with self.budgeted(res, f"catch-{target.replace(' ', '-')}") as run:
@@ -162,8 +179,8 @@ class CatchTask(TaskLifecycle):
                                                   weaken_to, max_balls - thrown,
                                                   res, memory=memory)
                 thrown += used
-                if outcome == "caught":
-                    caught = battle
+                if outcome in ("caught", "boxed"):
+                    caught, boxed = battle, outcome == "boxed"
                     break
                 if outcome == "no_balls":
                     blocked = f"ran out of {ball_name}s"
@@ -185,12 +202,26 @@ class CatchTask(TaskLifecycle):
             if memory.biggest_hit:
                 stats_out["hardest_hit"] = memory.biggest_hit
             if caught is not None:
-                mon = self.r.mon(self.r.party_count() - 1)
-                res.status = "completed"
-                res.message = (f"caught {mon.species_name} Lv{mon.level} on "
-                               f"{route} ({thrown} ball(s), "
-                               f"{stats.encounters} encounter(s))")
-                stats_out["caught"] = mon.species_name
+                # A boxed catch has no new party member to read, so the species
+                # comes from the battle it was caught in -- and the message says
+                # where it went, because "caught PIDGEY" beside an unchanged
+                # party of six is a report somebody has to go and check.
+                if boxed:
+                    res.status = "completed"
+                    res.message = (f"caught {caught.enemy_name} "
+                                   f"Lv{caught.enemy_level} on {route} and sent "
+                                   f"it to the PC -- the party was full "
+                                   f"({thrown} ball(s), "
+                                   f"{stats.encounters} encounter(s))")
+                    stats_out["caught"] = caught.enemy_name
+                    stats_out["went_to"] = "the PC"
+                else:
+                    mon = self.r.mon(self.r.party_count() - 1)
+                    res.status = "completed"
+                    res.message = (f"caught {mon.species_name} Lv{mon.level} on "
+                                   f"{route} ({thrown} ball(s), "
+                                   f"{stats.encounters} encounter(s))")
+                    stats_out["caught"] = mon.species_name
                 stats_out["party"] = self.r.party_count()
                 if save_when_done:
                     res.saved = self.saver.save_in_game()
@@ -224,11 +255,10 @@ class CatchTask(TaskLifecycle):
         weakening = weaken_to is not None
         mem = memory if memory is not None else Damage()
         before_party = self.r.party_count()
+        before_box = self.r.box_count()
         while used < budget:
             if not self.r.in_battle():
-                if self.r.party_count() > before_party:
-                    return "caught", used
-                return "got_away", used
+                return self._throw_outcome(before_party, before_box), used
             state = self.r.battle()
             if state.ready and state.enemy_hp == 0:
                 return "fainted", used
@@ -295,12 +325,40 @@ class CatchTask(TaskLifecycle):
                 res.note("could not reach the ball in the pack")
                 return "gave_up", used
             used += 1
-            outcome = self._watch_throw(before_party)
+            outcome = self._watch_throw(before_party, before_box)
             if outcome is not None:
                 return outcome, used
         return "gave_up", used
 
-    def _watch_throw(self, before_party: int) -> str | None:
+    def _throw_outcome(self, before_party: int, before_box: int | None) -> str:
+        """caught | boxed | got_away, once the battle is over.
+
+        **The party is not the only evidence, and it used to be the only one.**
+        With six carried the game still catches: "Gotcha!", the nickname
+        question, then "<name> was sent to BILL's PC." -- the party never moves
+        off six and one ball leaves the bag. Read through the party alone that
+        is indistinguishable from a getaway, which is why a full party was
+        refused outright.
+
+        The other evidence is the box, and this half can read it. `sBoxCount`
+        is a count in cartridge RAM, so it needs no alphabet and no per-language
+        wording -- where the mobile port, matching the sentence, has to keep the
+        English in a profile per cartridge. Measured: party stayed at six, box
+        went 0 -> 1, one ball gone.
+
+        The screen was tried first and lost, which is worth recording: by the
+        time the battle reports "ended" the engine's pump has already advanced
+        the text, so the sentence is gone and the tilemap is blank. The count is
+        still there.
+        """
+        if self.r.party_count() > before_party:
+            return "caught"
+        now = self.r.box_count()
+        if before_box is not None and now is not None and now > before_box:
+            return "boxed"
+        return "got_away"
+
+    def _watch_throw(self, before_party: int, before_box: int | None) -> str | None:
         """Advance the throw's text. Returns an outcome, or None to throw again.
 
         This delegates to the battle engine's decision pump rather than tapping
@@ -312,8 +370,7 @@ class CatchTask(TaskLifecycle):
             what = engine.next_decision()
             if what == "ended":
                 self.s.tick(90)          # let the "caught!" text settle
-                return ("caught" if self.r.party_count() > before_party
-                        else "got_away")
+                return self._throw_outcome(before_party, before_box)
             if what == "menu":
                 return None              # it broke free; the menu is back
             if what == "timeout":
@@ -322,8 +379,7 @@ class CatchTask(TaskLifecycle):
             # deal with the prompt and then re-read the situation.
             engine._settle_post_battle(_Sink())
             if not self.r.in_battle():
-                return ("caught" if self.r.party_count() > before_party
-                        else "got_away")
+                return self._throw_outcome(before_party, before_box)
         return None
 
     def _chip(self, res) -> str:

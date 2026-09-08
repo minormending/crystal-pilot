@@ -298,10 +298,15 @@ class Session:
     # Every access is therefore bank-qualified. 0xC000-0xCFFF is fixed WRAM and
     # HRAM is unbanked, so those are read directly.
     WRAM_SWITCHABLE = range(0xD000, 0xE000)
+    # Cartridge RAM, which is also bank-switched -- and where the boxes live.
+    # `sBoxCount` is `01:ad10`, so an unbanked read of it returns whichever
+    # bank the game last mapped. Nothing read an `s`-prefixed symbol until the
+    # boxes did, which is why this window was not here.
+    SRAM_SWITCHABLE = range(0xA000, 0xC000)
     DEFAULT_WRAM_BANK = 1
 
     def _resolve(self, where: str | int) -> tuple[int | None, int]:
-        """-> (wram_bank_or_None, address)."""
+        """-> (bank_or_None, address). The bank is WRAM's or the cartridge's."""
         if isinstance(where, str):
             bank, addr = self.sym.banked(where)
         else:
@@ -309,6 +314,10 @@ class Session:
             bank = self.DEFAULT_WRAM_BANK
         if addr in self.WRAM_SWITCHABLE:
             return (bank or self.DEFAULT_WRAM_BANK), addr
+        if addr in self.SRAM_SWITCHABLE:
+            # Bank 0 is a real cartridge RAM bank, so `bank or default` would be
+            # wrong here -- take what the symbol says.
+            return bank, addr
         return None, addr
 
     def _read(self, where: str | int) -> int:

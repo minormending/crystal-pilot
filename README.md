@@ -214,9 +214,11 @@ wild or trainer. `capture` throws at the wild Pokémon in front of you — use
 `catch` to go and *find* one. `heal` gets the party back to full. `take` picks up
 what this map is holding. `shop` goes and buys more of what has run out.
 
-Each refuses precisely: `capture` declines a trainer's Pokémon, a full party and
-an empty bag; `heal` declines mid-battle; `shop` declines an item no counter in
-the game sells, before walking anywhere. `battle` defaults to playing the battle
+Each refuses precisely: `capture` declines a trainer's Pokémon and an empty bag;
+`heal` declines mid-battle; `shop` declines an item no counter in the game
+sells, before walking anywhere. A **full party is no longer one of them** — the
+game boxes the seventh, and `sBoxCount` in cartridge RAM is how the pilot knows
+it did. `battle` defaults to playing the battle
 out rather than fleeing — pass `--flee-below F` for the escaping policy.
 
 An errand that is already done is **done, not an error**. `shop` with a full bag
@@ -677,7 +679,7 @@ slot is one step backwards that the next job overwrites.
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-306 tests. Most of them exist because of a specific bug that shipped and was
+309 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -705,9 +707,9 @@ drive a real emulator skip themselves. The runner says so rather than reporting
 a bare pass:
 
 ```
-126 passed, 180 skipped, 0 failed  (1.5s)
+126 passed, 183 skipped, 0 failed  (1.5s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (180 tests need a ROM built from the disassembly)
+  (183 tests need a ROM built from the disassembly)
 ```
 
 That used to be 20 of 108, and the 20 only read data files — the badge covered
@@ -742,7 +744,8 @@ caught  a forced switch presses A without checking the cursor arrived
 caught  the speed command is undone by the reset after every command
 caught  the linter stops seeing the tools it never used to see
 caught  a refused leg is charged against the walk's arrival budget again
-26 caught, 0 missed
+caught  the box stops being evidence, so a boxed catch reads as a getaway
+28 caught, 0 missed
 ```
 
 Each is a bug that was live in this repository rather than a hypothetical. They

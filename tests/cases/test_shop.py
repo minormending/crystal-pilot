@@ -239,3 +239,37 @@ def _(t):
     res = p.shop(item="POTION", want=1)
     t.eq(res.status, "blocked", "refused")
     t.contains(res.message, "finish the battle first", "and says why")
+
+
+@test("a purchase leaves the counter, not just closes its box")
+def _(t):
+    """The most expensive defect the mobile port logged, guarded here.
+
+    Over there `buyFromClerk` ended by pressing B until no window was open,
+    which is right for a menu the pilot opened and wrong for a box the *game*
+    is holding up: the boxes closed, `wScriptMode` stayed non-zero, and the
+    clerk's confirmation came back a moment later. The pilot was then standing
+    in front of *"1 POKé BALL will be ¥200. OK?"* — and every later job runs
+    `run_scripts`, which presses A through text. A on that box is a purchase.
+    ¥3000 became ¥100, four balls at a time.
+
+    This half ends with `advance_text` rather than `close_menus`, so it does not
+    have that bug. But `window_open()` alone is what the test above checks, and
+    that is exactly the assertion which passed over there while the wallet
+    drained. So the claim worth pinning is the one that failed: the script is
+    idle, and running scripts again costs nothing.
+    """
+    p = t.pilot("route30", timeout=900)
+    out = p.traveler.restock(["POTION"], want=3)
+    t.true(out["ok"], out["message"])
+    after = p.reader.money()
+    t.false(p.control.window_open(), "no box is up")
+    t.false(p.control.script_running(), "and no script is still running")
+    t.eq(p.session.rb("wScriptMode"), 0, "wScriptMode is back to zero")
+
+    # What every later job does. If a confirmation were still being held up,
+    # this is the press that would buy another one.
+    p.control.run_scripts()
+    p.nav.settle()
+    t.eq(p.reader.money(), after, "and running scripts again spends nothing")
+    t.false(p.control.script_running(), "with nothing left running")

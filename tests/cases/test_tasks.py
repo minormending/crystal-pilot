@@ -121,16 +121,62 @@ def _(t):
     t.contains(res.message.lower(), "no poke balls", "reason given")
 
 
-@test("catch will not silently box a Pokemon when the party is full")
+@test("the PC box is readable, which needs its cartridge RAM bank")
+def _(t):
+    p = t.pilot("grass_cyndaquil")
+    # `sBoxCount` is `01:ad10` -- cartridge RAM, not work RAM -- so it is the
+    # first symbol in this project that needed `Session._resolve` to bank the
+    # `0xA000-0xC000` window. An unbanked read returns whichever bank the game
+    # last mapped.
+    t.eq(p.session._resolve("sBoxCount"), (1, 0xAD10), "bank 1, from the symbol")
+    box = p.reader.box_count()
+    t.ne(box, None, "and it reads back")
+    t.gte(box, 0, f"as a count ({box})")
+    t.lte(box, 20, "within the box's capacity")
+
+
+@test("a full party catches into the box and says where it went")
+def _(t):
+    p = t.pilot("grass_cyndaquil", timeout=900)
+    t.give_balls(p)
+    # A genuinely full party, not just `wPartyCount = 6`: the game reads those
+    # structs, and this catch has to get all the way through the throw.
+    for _ in range(5):
+        t.clone_lead(p)
+    t.eq(p.reader.party_count(), 6, "six carried")
+    want = _always_out(t)
+    res = p.catch(species=want, save_when_done=False, max_encounters=60)
+    t.note(f"{res.status}: {res.message}")
+    # The game handled this all along. What a full party costs is the
+    # *evidence*: the party never moves, so a boxed catch read through the
+    # party alone is indistinguishable from a getaway -- which is why it used
+    # to be refused outright.
+    t.eq(res.status, "completed", res.message)
+    t.eq(p.reader.party_count(), 6, "the party did not move off six")
+    t.eq(res.stats.get("went_to"), "the PC", "and it says where it went")
+    t.gt(p.reader.box_count(), 0, "the box is what moved")
+    t.eq(res.stats.get("caught"), want.upper(), "naming what was caught")
+    t.contains(res.message, "party was full", "with the reason in the message")
+
+
+@test("a build that cannot read the box keeps the refusal")
 def _(t):
     p = t.pilot("grass_cyndaquil")
     t.give_balls(p)
-    # Six party members is the cap; a further catch goes to the PC, which the
-    # task does not handle.
-    p.session.wb("wPartyCount", 6)
-    res = p.catch(species="pidgey", save_when_done=False)
-    t.eq(res.status, "blocked", "should refuse with a full party")
-    t.contains(res.message.lower(), "party is full", "reason given")
+    for _ in range(5):
+        t.clone_lead(p)
+    # A cartridge whose disassembly does not define the phrase cannot tell a
+    # boxed catch from a getaway, so it refuses -- and the refusal names the
+    # missing fact rather than claiming the pilot cannot do it.
+    real = p.reader.box_count
+    p.reader.box_count = lambda: None
+    try:
+        res = p.catch(species="pidgey", save_when_done=False)
+    finally:
+        p.reader.box_count = real
+    t.eq(res.status, "blocked", "refused")
+    t.contains(res.message, "party is full", "saying the party is full")
+    t.contains(res.message, "sBoxCount", "and naming the missing fact")
 
 
 @test("hunt flees the encounters it does not want")

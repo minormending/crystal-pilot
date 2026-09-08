@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import time
 
+from .. import symbols as S
 from ..battle import BattleEngine, BattlePolicy
 from ..session import PilotTimeout
 from .base import TaskResult
@@ -119,11 +120,26 @@ class CaptureTask(CatchTask):
             res.status = "blocked"
             res.message = "that is a trainer's Pokemon -- it cannot be caught"
             return res
-        if self.r.party_count() >= 6:
-            res.status = "blocked"
-            res.message = ("the party is full -- a caught Pokemon would go to the "
-                           "PC, which this task does not handle. Free a slot first.")
-            return res
+        if self.r.party_count() >= S.MAX_PARTY:
+            # `CatchTask` explains this at length: a full party is fine, the
+            # game boxes the seventh. What it costs is the evidence, and the
+            # box count is that evidence. `CaptureTask` subclasses `CatchTask`,
+            # so it reads the box the same way -- only the refusals are here,
+            # because this task takes no target and answers up front.
+            box = self.r.box_count()
+            if box is None:
+                res.status = "blocked"
+                res.message = ("the party is full and this build does not name "
+                               "sBoxCount -- so a catch that went to the PC "
+                               "could not be told from one that got away. "
+                               "Free a party slot first.")
+                return res
+            if box >= S.MONS_PER_BOX:
+                res.status = "blocked"
+                res.message = (f"the party is full and so is the box "
+                               f"({box}/{S.MONS_PER_BOX}) -- there is nowhere "
+                               f"to put it. Free a slot in either.")
+                return res
         try:
             ball_id, ball_name = self._pick_ball(ball)
         except LookupError as e:

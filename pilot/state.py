@@ -281,6 +281,32 @@ class GameStateReader:
         byte = self.s.rb(self.s.sym.addr("wEventFlags") + index // 8)
         return bool(byte & (1 << (index % 8)))
 
+    def box_count(self) -> int | None:
+        """How many Pokemon are in the *active* PC box, or None if unreadable.
+
+        `sBoxCount` lives in cartridge RAM -- `01:ad10` -- rather than work RAM,
+        which is why it needed the SRAM banking in `Session._resolve`: an
+        unbanked read returns whichever bank the game last mapped.
+
+        This is the evidence a catch made with a full party has, and it is the
+        *state* rather than the words on the screen. With six carried the game
+        catches anyway: "Gotcha!", the nickname question, then "<name> was sent
+        to BILL's PC." -- the party never moves off six and one ball leaves the
+        bag, so read through the party alone a boxed catch is indistinguishable
+        from a getaway.
+
+        The mobile port answers this by matching that sentence, and has to keep
+        the English in a per-cartridge profile. A count needs no alphabet and no
+        wording, so a translated hack works without being told anything.
+
+        None when the build does not name the symbol, which keeps the caller's
+        refusal honest rather than reading a zero off nowhere.
+        """
+        try:
+            return self.s.rb("sBoxCount")
+        except KeyError:
+            return None
+
     def badge_count(self) -> int:
         """How many badges the player has, across both regions.
 

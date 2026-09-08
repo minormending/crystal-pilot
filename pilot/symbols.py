@@ -81,6 +81,9 @@ MON_SPCL_DEF = 0x2E
 
 NUM_MOVES = 4
 MAX_PARTY = 6
+# constants/pokemon_data_constants.asm. The active PC box holds twenty, and a
+# full one is why a catch with a full party can still have nowhere to put it.
+MONS_PER_BOX = 20
 
 # --- wBattleMode values ----------------------------------------------------
 BATTLE_NONE = 0

@@ -15,6 +15,7 @@ CONST = re.compile(r"^\s*const\s+([A-Z0-9_]+)")
 CONST_SKIP = re.compile(r"^\s*const_skip(?:\s+(\d+))?")
 CONST_NEXT = re.compile(r"^\s*const_next\s+(\$?\w+)")
 NEWGROUP = re.compile(r"^\s*newgroup\s+([A-Z0-9_]+)")
+
 MAP_CONST = re.compile(r"^\s*map_const\s+([A-Z0-9_]+)\s*,\s*(\d+)\s*,\s*(\d+)")
 MOVE_ROW = re.compile(
     r"^\s*move\s+([A-Z0-9_]+)\s*,\s*([A-Z0-9_]+)\s*,\s*(\d+)\s*,\s*([A-Z0-9_]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)"

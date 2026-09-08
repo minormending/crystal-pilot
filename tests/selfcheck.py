@@ -299,6 +299,33 @@ MUTATIONS = [
         """            self._written_off_at = badges""",
         "re-opens every written-off leg",
     ),
+    (
+        # The party was the only evidence for years, and with six carried the
+        # game boxes the seventh: the party never moves, one ball leaves the
+        # bag, and a boxed catch reads exactly like a getaway.
+        "the box stops being evidence, so a boxed catch reads as a getaway",
+        "pilot/tasks/catch.py",
+        """        now = self.r.box_count()
+        if before_box is not None and now is not None and now > before_box:
+            return "boxed\"""",
+        """        now = self.r.box_count()
+        if False:
+            return "boxed\"""",
+        "full party catches into",
+    ),
+    (
+        # `sBoxCount` is `01:ad10` -- cartridge RAM, which is bank-switched.
+        # Unbanked, the read returns whichever bank the game last mapped.
+        "cartridge RAM is read unbanked again",
+        "pilot/session.py",
+        """        if addr in self.SRAM_SWITCHABLE:
+            # Bank 0 is a real cartridge RAM bank, so `bank or default` would be
+            # wrong here -- take what the symbol says.
+            return bank, addr
+""",
+        "",
+        "cartridge RAM bank",
+    ),
 ]
 
 
