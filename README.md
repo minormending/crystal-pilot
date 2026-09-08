@@ -69,6 +69,12 @@ Sections that describe code carry a hash of the files they cover, so
 pre-commit hook runs it; enable it once per clone with
 `git config core.hooksPath .githooks`.
 
+**[Ported by Measurement](https://claude.ai/code/artifact/78995dc4-984b-4e7b-add1-5e329ef13e37)**
+is the write-up of the port from the mobile build: what crossed, the eleven
+measurements that made each answer work — a button hold in frames, two WRAM
+addresses twenty-six bytes apart, a route that pays and cannot be survived —
+and the four defects the port found in code that predates it.
+
 ## Requirements
 
 - A **pokecrystal** disassembly checkout, built (`make`), giving you

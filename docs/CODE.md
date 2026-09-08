@@ -106,7 +106,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 <!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 82a16a7262ef -->
 
-Roughly 9,000 lines of Python, in layers. Arrows point from a layer to what it
+Roughly 10,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
 
 ```mermaid
