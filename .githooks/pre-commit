@@ -6,15 +6,22 @@
 #
 # Enable once per clone:  git config core.hooksPath .githooks
 
-staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$|^run-tests$')
+# The tools are Python with a shebang and no extension, so an extension test
+# never saw them -- editing one skipped both checks below.
+staged=$(git diff --cached --name-only --diff-filter=ACM \
+  | grep -E '\.py$|^run-tests$|^tools/(coverage|docs-check)$')
 [ -z "$staged" ] && exit 0
 
 # Lint first: it is instant, and it is the check most likely to catch a slip
 # that would otherwise be found by a reader.
-if command -v ruff >/dev/null 2>&1 && ! ruff check pilot tests >/dev/null 2>&1; then
+# `.` rather than a list of directories, so this and CI cannot drift apart and
+# so a new directory is covered the day it appears. `ruff.toml` names the two
+# extensionless tools, which ruff will not otherwise discover -- for as long as
+# that was missing, `ruff check .` passed having never opened either of them.
+if command -v ruff >/dev/null 2>&1 && ! ruff check . >/dev/null 2>&1; then
   echo
   echo "  ---"
-  echo "  ruff has something to say. Run: ruff check pilot tests"
+  echo "  ruff has something to say. Run: ruff check ."
   echo "  To commit anyway:  git commit --no-verify"
   exit 1
 fi

@@ -1760,7 +1760,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ ba003cf3d7f3 -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ b0c783801375 -->
 
 ```bash
 ./run-tests                      # everything
@@ -1769,10 +1769,10 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-296 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+299 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
-**123 of them need nothing but the repository**, which is what CI has: the
+**126 of them need nothing but the repository**, which is what CI has: the
 disassembly is cloned but no ROM is built, because building one needs rgbds and
 no ROM is distributed. `tests/fake.py` is why that number is not 20 — a
 stand-in session over a work-RAM buffer, with scripted button responses and a
@@ -1784,7 +1784,7 @@ navigator's fallbacks all run against it.
 The other 173 are genuine integration tests — walking, the intro, crossing maps,
 a real save — and skip themselves without a ROM rather than failing.
 
-**`--self-check` re-introduces twenty-one bugs one at a time** and checks the test
+**`--self-check` re-introduces twenty-three bugs one at a time** and checks the test
 meant to catch each one goes red, reverting every mutation afterwards. That is
 the only thing which proves a *test* works: a test written alongside a fix is
 written against a codebase where the bug is already gone, so it has never been
@@ -1796,6 +1796,11 @@ party *lost* reported as won, a grind that collected every count and dropped
 them at the last step, an object array read three entries past its end into its
 neighbour, an item pattern that quietly matched 232 of 256 rows, and a party
 list the pilot could not drive recorded as a blackout.
+
+Two are not bugs in the program at all but holes in the *gate* — the lint scope
+that never opened the two extensionless tools, described in
+[Keeping this honest](#11-keeping-this-honest). They belong on the same list for
+the same reason: the failure was silent and read as a clean run.
 
 **`tools/coverage` is how the untested paths get found rather than noticed.**
 It runs the suite under `coverage` and ranks the modules by how much of each has
@@ -1938,6 +1943,40 @@ Consequences worth knowing:
 - **The scanner skips fenced code blocks.** A document explaining this marker
   format contains examples of it, and without that rule the tool rewrites its own
   documentation.
+
+</details>
+
+<details>
+<summary><b>Advanced detail:</b> the gates, checked against what they cover</summary>
+
+There are four — `./run-tests`, `--self-check`, `tools/docs-check` and ruff —
+and each is a promise about the whole codebase. **A gate that quietly covers
+less than it says is worse than no gate**, because it is read as rigour, and
+this repository has now produced that failure twice.
+
+`ruff.toml` exists because of the first: eight `# noqa: BLE001` comments
+addressed to a linter that had never been configured or run. The second was the
+linter it configured. `tools/coverage` and `tools/docs-check` are Python with a
+shebang and no extension, and ruff will lint such a file when it is *named* but
+will not **discover** it from a directory — `ruff check tools` answers "No
+Python files found". So `ruff check pilot tests` in CI and the hook, and
+`ruff check .` locally, all reported a clean run for months without opening
+either file. Naming them in `extend-include` found a real error in one on the
+first run.
+
+The pre-commit hook had the same hole from the other direction: it filtered
+staged files on `\.py$`, so editing a tool ran neither the linter nor this
+document check.
+
+`tests/cases/test_gates.py` checks the gates rather than the code, and asks each
+one about itself rather than modelling it. The lint scope comes from
+`ruff check --show-files .` — the list ruff would actually use, with this
+config — compared against every tracked file that is Python by extension *or by
+shebang*. The hook's `grep -E` pattern is read out of the hook and matched
+against that same list. And CI and the hook must state the same scope, because a
+scope written in two places is what drifted in the first place; both say
+`ruff check .`, which also means a new directory is covered the day it appears
+rather than the day somebody remembers it.
 
 </details>
 

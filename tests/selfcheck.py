@@ -245,6 +245,28 @@ MUTATIONS = [
         "        self.p.session.pyboy.set_emulation_speed(1)",
         "survives the reset",
     ),
+    (
+        # Not a bug in the program -- a hole in the gate that guards it. Both
+        # tools are Python with a shebang and no extension, and ruff lints such
+        # a file when it is named but will not discover it from a directory. So
+        # `ruff check .` passed for months without opening either, and naming
+        # them found a real error in one on the first run.
+        "the linter stops seeing the tools it never used to see",
+        "ruff.toml",
+        'extend-include = ["tools/coverage", "tools/docs-check"]',
+        "extend-include = []",
+        "covers every Python file",
+    ),
+    (
+        # The narrower scope this replaced. It passes every rule and misses the
+        # two tools, which is what makes it worth a mutation: the failure is
+        # silent and reads as a clean run.
+        "CI goes back to linting two directories instead of the repository",
+        ".github/workflows/tests.yml",
+        "        run: ruff check .",
+        "        run: ruff check pilot tests",
+        "lint the same scope",
+    ),
 ]
 
 

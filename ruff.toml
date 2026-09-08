@@ -10,6 +10,14 @@
 line-length = 88
 target-version = "py311"
 
+# `tools/coverage` and `tools/docs-check` are Python with a shebang and no
+# extension, and ruff will not *discover* such a file from a directory -- it
+# lints one named explicitly and finds nothing at all under `tools/`. So for as
+# long as this was missing, `ruff check .` reported "All checks passed" having
+# never opened either of them. Which is the same failure this file exists for:
+# a linter that reads as rigour and covers nothing.
+extend-include = ["tools/coverage", "tools/docs-check"]
+
 [lint]
 select = [
     "E", "W",      # pycodestyle: layout mistakes that make a diff harder to read

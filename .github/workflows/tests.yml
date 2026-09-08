@@ -43,7 +43,14 @@ jobs:
         # Before this, eight `# noqa: BLE001` comments were addressed to a
         # linter that had never been configured -- and seven other blind
         # excepts in the same files carried no comment at all.
-        run: ruff check pilot tests
+        #
+        # `.` and not `pilot tests`, which missed `tools/` entirely: those two
+        # scripts are Python with a shebang and no extension, and ruff does not
+        # discover such a file from a directory. `ruff.toml` names them, and a
+        # test checks that the lint scope really does cover every Python file
+        # in the repository -- a linter that appears to run and covers nothing
+        # is the thing ruff.toml was added for in the first place.
+        run: ruff check .
 
       - name: Run the data tests
         env:

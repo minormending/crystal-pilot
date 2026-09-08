@@ -64,7 +64,8 @@ def digest(paths, kind=""):
             body = b"<missing>"
         elif kind == "-api":
             lines = target.read_text().splitlines()
-            body = "\n".join(l.strip() for l in lines if SURFACE.match(l)).encode()
+            body = "\n".join(ln.strip() for ln in lines
+                              if SURFACE.match(ln)).encode()
         else:
             body = target.read_bytes()
         h.update(body)
