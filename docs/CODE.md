@@ -104,7 +104,7 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ 82a16a7262ef -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ db3671b88b67 -->
 
 Roughly 10,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
@@ -418,7 +418,7 @@ asleep with nothing that wakes it.
 
 ### `collision.py` — what you can walk on
 
-<!-- covers: pilot/collision.py @ fe67ddffd323 -->
+<!-- covers: pilot/collision.py @ 662b5a3f34cd -->
 
 Decodes the loaded map into "can I stand on this tile", and does breadth-first
 pathfinding over it — so movement is planned rather than discovered by bumping
@@ -452,6 +452,29 @@ the map was still loading.
 **Pathfinding avoids one-way ledges.** A ledge can be stood on; it is *leaving*
 one in the hop direction that moves two tiles irreversibly, and a route that
 used one could not be walked back.
+
+**And it avoids people, which is a different array.** The collision map is
+*terrain*: it has nothing to say about the Youngster standing in a one-tile
+corridor, so a planner reading only terrain routes straight through him, bumps,
+learns one tile and re-plans — once per person. `occupied()` reads the game's
+object arrays instead, so the route goes round them on the first attempt.
+
+There are two arrays and they answer differently. `wMapObjects` is what the map
+*places*: sixteen entries, stable, and including things an event flag has never
+spawned. `wObjectStructs` is what the game has actually *spawned*: thirteen
+entries, live coordinates, and absent for anything too far away to matter.
+Measured on Route 30 from the south end — eleven objects placed, exactly one
+spawned, and that one is the player.
+
+So the live array is preferred, because on the placements this is wrong in both
+directions at once: a wanderer is marked where it was placed rather than where
+it is, and objects nobody has spawned are marked at all. The placements are the
+fallback for when the structs cannot be read — stale tiles beat no tiles,
+because walking into somebody costs a refused step and the planner recovers.
+
+Both store coordinates offset by +4, which is measured rather than assumed:
+index 0 of each is the player, and on Route 30 it reads raw (11,57) with the
+player standing at (7,53).
 
 </details>
 
@@ -759,7 +782,7 @@ silently does nothing.
 
 ## 6. Moving around
 
-<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ f11ce6e4e637 -->
+<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ 4478bd7f2a8e -->
 
 Five layers, each built on the one below. The top one is a fan rather than a
 single answer, because "go somewhere and do a thing" is three different things.
@@ -784,6 +807,21 @@ a second step into grass you did not plan for.
 `follow_path_to` has two bounds, and they count different things.
 `max_battles` bounds wild encounters; `replans` bounds *being wrong about the
 map* — a tile the collision decode thinks is open and an NPC is standing on.
+
+It also keeps two kinds of knowledge about non-wall tiles apart, because they
+age differently and are given up in a different order. `bumped` is what refused
+a step: measured, and it accumulates. `occupied` is who is standing where right
+now, re-read on **every** plan rather than accumulated, because a wanderer
+moves — the tile it blocked ten steps ago is open and the one it is on now is
+not.
+
+When no plan can be made at all, the people are given up first and the measured
+tiles second. **An avoid set can seal a corridor**, and the object read is the
+half most likely to be wrong about one: a route whose only way north is a
+single tile is impassable for as long as somebody stands in it, and refusing to
+plan is worse than walking up and taking a refused step. Giving up the measured
+tiles happens once only — a second time just walks into the same obstacle
+forever.
 
 They were one bound for a while, against a comment saying they were not. A
 battle inside the step loop broke out and the top of the loop charged it a
@@ -896,7 +934,7 @@ counting `session.presses` was measuring a list that movement never touches.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 0c7d66b853e0 -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 1dee4165d242 -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -1502,7 +1540,7 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-231 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+239 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
 **104 of them need nothing but the repository**, which is what CI has: the

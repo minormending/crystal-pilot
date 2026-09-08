@@ -54,6 +54,13 @@ def load_permissions(source_root: str) -> tuple[int, ...]:
     return tuple(perms[:256])
 
 
+# constants/map_object_constants.asm: the object-type nibble the engine
+# branches on when you press A. Only the trainer value is needed here; the
+# item-ball one lives in world.py, which reads the same fact out of the
+# disassembly's `object_event` lines instead of out of work RAM.
+OBJECTTYPE_TRAINER = 2
+
+
 class CollisionMap:
     def __init__(self, session, reader, source_root):
         self.s = session
@@ -164,6 +171,150 @@ class CollisionMap:
 
     def map_size(self) -> tuple[int, int]:
         return self.s.rb("wMapWidth") * 2, self.s.rb("wMapHeight") * 2
+
+    # --- who is standing where ---------------------------------------------
+    # The collision map is *terrain*. It has nothing to say about the Youngster
+    # standing in a one-tile corridor, so a planner reading only terrain routes
+    # straight through people -- bumps, learns one tile, and re-plans, once per
+    # person. Reading the object arrays turns that into a route that goes round
+    # them on the first attempt.
+    #
+    # Both arrays store coordinates offset by +4, which is measured rather than
+    # assumed: on Route 30, index 0 of each is the player, and it reads raw
+    # (11,57) with the player standing at (7,53).
+    OBJECT_ORIGIN = 4
+    # wMapObjects: 16 entries of MAPOBJECT_LENGTH, index 0 is the player's
+    # placement. Sprite, y, x and a type nibble, per map_object_constants.asm.
+    PLACED_COUNT, PLACED_BYTES = 16, 0x10
+    PLACED_SPRITE, PLACED_Y, PLACED_X, PLACED_TYPE = 1, 2, 3, 8
+    TYPE_MASK = 0x0F
+    # wObjectStructs: NUM_OBJECT_STRUCTS entries, stride taken from the symbol
+    # table rather than hardcoded so a patched build cannot silently shift it.
+    STRUCT_COUNT = 13
+    STRUCT_SPRITE, STRUCT_PLACED_INDEX, STRUCT_X, STRUCT_Y = 0, 1, 0x10, 0x11
+
+    def placed_objects(self) -> list[dict]:
+        """What the map *places*: [{index, sprite, type, x, y}].
+
+        Index 0 is kept, because the index is what a struct points back at; the
+        callers that would be confused by the player drop it.
+
+        Tiles outside the map are dropped. Index 0 cannot be used to check the
+        origin -- it holds a placement rather than a live position -- so the
+        map's bounds are the only check available, and that is also the right
+        way to fail: on a build that stored objects at a different origin an
+        empty list means the planner walks into people and recovers, where a
+        list of in-bounds but *wrong* tiles can seal a one-tile corridor.
+        """
+        try:
+            base = self.s.sym.addr("wMapObjects")
+        except KeyError:
+            return []
+        w, h = self.map_size()
+        out = []
+        for i in range(self.PLACED_COUNT):
+            at = base + i * self.PLACED_BYTES
+            sprite = self.s.rb(at + self.PLACED_SPRITE)
+            if not sprite:
+                continue
+            x = self.s.rb(at + self.PLACED_X) - self.OBJECT_ORIGIN
+            y = self.s.rb(at + self.PLACED_Y) - self.OBJECT_ORIGIN
+            if not (0 <= x < w and 0 <= y < h):
+                continue
+            out.append({"index": i, "sprite": sprite, "x": x, "y": y,
+                        "type": self.s.rb(at + self.PLACED_TYPE) & self.TYPE_MASK})
+        return out
+
+    def live_objects(self) -> list[dict] | None:
+        """What the game has actually *spawned*, joined back to its placement.
+
+        Two things are true of this and not of the placements, and they are the
+        two reasons to prefer it:
+
+          * the coordinates are live, so a wanderer reads where it is standing;
+          * an object the game has not spawned is simply absent, whether because
+            an event flag hides it or because it is too far away to matter.
+
+        Thirteen structs against sixteen placements, so being off the list is
+        ordinary rather than exceptional -- measured on Route 30 from the south
+        end, eleven objects are placed and exactly one is spawned: the player.
+
+        Index 0 is the player's own struct and is skipped: the tile the player
+        stands on is not an obstacle to the player.
+
+        Returns None, not an empty list, when the symbol table does not name the
+        array. The callers need "cannot tell" apart from "nothing there" --
+        `occupied` falls back to the placements, and `trainers_here` must not
+        claim a map has no trainers when it has not looked.
+        """
+        try:
+            base = self.s.sym.addr("wObjectStructs")
+            stride = self.s.sym.addr("wObject1Struct") - base
+            placed = self.s.sym.addr("wMapObjects")
+        except KeyError:
+            return None
+        if stride <= 0:
+            return None
+        w, h = self.map_size()
+        out = []
+        for i in range(1, self.STRUCT_COUNT):
+            at = base + i * stride
+            sprite = self.s.rb(at + self.STRUCT_SPRITE)
+            if not sprite:
+                continue
+            index = self.s.rb(at + self.STRUCT_PLACED_INDEX)
+            x = self.s.rb(at + self.STRUCT_X) - self.OBJECT_ORIGIN
+            y = self.s.rb(at + self.STRUCT_Y) - self.OBJECT_ORIGIN
+            if not (0 <= x < w and 0 <= y < h):
+                continue
+            # The type comes from the placement the struct points at, because a
+            # struct does not carry one. A struct pointing outside the array is
+            # not trusted for its type and is still trusted for its tile:
+            # something is standing there whatever it turns out to be.
+            kind = None
+            if index < self.PLACED_COUNT:
+                kind = (self.s.rb(placed + index * self.PLACED_BYTES
+                                  + self.PLACED_TYPE) & self.TYPE_MASK)
+            out.append({"index": index, "sprite": sprite, "x": x, "y": y,
+                        "type": kind})
+        return out
+
+    def occupied(self) -> set[tuple[int, int]]:
+        """Tiles that people and props are standing on, right now.
+
+        Read from the *live* structs where they can be read at all, because on
+        the placements this is wrong in both directions at once: a wanderer is
+        marked where it was placed rather than where it is, and objects an event
+        flag has never spawned are marked at all.
+
+        Falls back to the placements when the structs cannot be read. Stale
+        tiles beat no tiles, because walking into somebody costs a refused step
+        and `follow_path_to` recovers -- while a corridor sealed by a *wrong*
+        avoid set is a route that looks impassable.
+        """
+        live = self.live_objects()
+        if live is None:
+            live = [o for o in self.placed_objects() if o["index"] != 0]
+        return {(o["x"], o["y"]) for o in live}
+
+    def trainers_here(self) -> list[dict]:
+        """The trainers the game has spawned on this map: [{x, y, sprite}].
+
+        Both arrays at once, because either alone answers wrongly. The
+        placement says what an object *is* -- the type byte the game branches
+        on -- and the struct says whether it is here and where. A trainer whose
+        event flag has not fired is a placement with no struct, and walking to
+        one is walking to nobody.
+
+        Which is why this returns an empty list rather than falling back to the
+        placements the way `occupied` does. There the fallback is a hint that
+        can be wrong at the cost of a re-plan; here it would be a walk.
+        """
+        live = self.live_objects()
+        if not live:
+            return []
+        return [{"x": o["x"], "y": o["y"], "sprite": o["sprite"]}
+                for o in live if o["type"] == OBJECTTYPE_TRAINER]
 
     # --- pathfinding -------------------------------------------------------
     def path_to(self, goal, start=None, allow_warp_goal: bool = True,

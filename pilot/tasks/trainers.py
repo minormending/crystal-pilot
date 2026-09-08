@@ -203,20 +203,19 @@ class TrainerSweepTask(TaskLifecycle):
     def _object_at(self, tx: int, ty: int) -> bool:
         """Is a loaded map object standing on this tile?
 
-        wObjectStructs holds the live instances (coordinates offset by +4, the
-        same convention as the collision map). wMapObjects lists the map's
-        objects whether or not they are actually present, so it cannot answer
-        this on its own.
+        `wObjectStructs` holds the live instances, and `wMapObjects` lists the
+        map's objects whether or not they are present -- so the structs are the
+        only array that can answer this. Both are now read by
+        `CollisionMap.live_objects`, which this used to walk itself with its own
+        copy of the stride, the +4 origin and the slot count. One reader, and
+        it also fixed a real slip in the copy: this looped to 16 where
+        `NUM_OBJECT_STRUCTS` is 13, so three iterations read 120 bytes past the
+        end of the array and could match a tile on whatever follows it.
         """
-        base = self.s.sym.addr("wObjectStructs")
-        stride = self.s.sym.addr("wObject1Struct") - base
-        for i in range(1, 16):          # slot 0 is the player
-            o = base + i * stride
-            if self.s.rb(o) in (0, 0xFF):
-                continue
-            if (self.s.rb(o + 0x10) - 4, self.s.rb(o + 0x11) - 4) == (tx, ty):
-                return True
-        return False
+        live = self.n.collision.live_objects()
+        if not live:
+            return False
+        return any((o["x"], o["y"]) == (tx, ty) for o in live)
 
     def _lead(self):
         party = self.r.party()

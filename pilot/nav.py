@@ -99,10 +99,18 @@ class Navigator:
         """
         cm = self.collision
         from_key = self.r.location().key
-        # Tiles that refused a step. The collision map knows about terrain but
-        # not about NPCs standing on it, so a tile that bumps once is excluded
-        # from the next plan instead of being retried forever.
-        avoid: set[tuple[int, int]] = set()
+        # Two kinds of knowledge about tiles that are not walls, kept apart
+        # because they age differently and are given up in a different order.
+        #
+        # `bumped` is what refused a step. It is a fact about this attempt and
+        # it accumulates: a tile that would not take a step is excluded from the
+        # next plan instead of being retried forever.
+        #
+        # `occupied` is who is standing where *right now*, read from the game's
+        # object structs. It is re-read on every plan rather than accumulated,
+        # because a wanderer moves -- the tile it blocked ten steps ago is open
+        # and the one it is on now is not.
+        bumped: set[tuple[int, int]] = set()
         # Wild encounters interrupt constantly when crossing grass. They are not
         # navigation failures -- no progress is lost -- so they get their own
         # generous allowance instead of eating the replan budget, which exists
@@ -131,18 +139,30 @@ class Navigator:
                 continue
             if self.r.location().key != from_key:
                 return StepResult(moved=True, map_changed=True)
-            path = cm.path_to(goal, allow_warp_goal=allow_warp_goal, avoid=avoid)
+            # Fresh every plan: people move.
+            occupied = cm.occupied()
+            path = cm.path_to(goal, allow_warp_goal=allow_warp_goal,
+                              avoid=bumped | occupied)
             if path is None:
-                if not avoid or cleared_once:
-                    # Genuinely unreachable -- e.g. the only corridor is held by
-                    # an NPC. Clearing the avoid set again would just walk back
-                    # into it forever.
-                    return StepResult(blocked=True)
-                cleared_once = True
-                avoid.clear()
-                path = cm.path_to(goal, allow_warp_goal=allow_warp_goal)
+                # **An avoid set can seal a corridor**, so the two sets are
+                # given up in order of how much they are trusted -- people
+                # first, because that read is the one most likely to be wrong
+                # about a corridor. A route whose only way north is one tile
+                # wide is impassable for as long as somebody stands in it, and
+                # refusing to plan is worse than walking up to them and taking
+                # a refused step.
+                path = cm.path_to(goal, allow_warp_goal=allow_warp_goal,
+                                  avoid=bumped)
                 if path is None:
-                    return StepResult(blocked=True)
+                    # Now the measured tiles as well. Once only: dropping them
+                    # a second time just walks into the same obstacle forever.
+                    if cleared_once:
+                        return StepResult(blocked=True)
+                    path = cm.path_to(goal, allow_warp_goal=allow_warp_goal)
+                    if path is None:
+                        return StepResult(blocked=True)
+                    cleared_once = True
+                    bumped.clear()
             if not path:
                 return StepResult(moved=True)
             # "battle" or "obstacle", and the distinction is the budget: only an
@@ -170,7 +190,7 @@ class Navigator:
                     return StepResult(moved=True, map_changed=True)
                 if not res.moved:
                     dx, dy = DELTA[d]
-                    avoid.add((before.x + dx, before.y + dy))
+                    bumped.add((before.x + dx, before.y + dy))
                     derailed = "obstacle"
                     break
                 after = self.r.location()
