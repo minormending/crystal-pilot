@@ -416,6 +416,41 @@ asleep with nothing that wakes it.
 
 </details>
 
+<details>
+<summary><b>Advanced detail:</b> a pattern that stops matching is invisible</summary>
+
+Every parser here shares one failure mode, and it is worth stating on its own
+because nothing about it looks like a failure. A regex that stops matching does
+not crash and produces no wrong value — there is simply **less of it**, and the
+symptom arrives much later as an item the pilot cannot see or a map it cannot
+leave.
+
+Both of the ones found this way were found by counting, not by anything going
+wrong:
+
+**`item_attribute`'s `property` field is a flag expression.** Twenty-five key
+items write it `CANT_SELECT | CANT_TOSS`, and a pattern expecting one word there
+matched 232 of the file's 256 rows. Twenty-two key items were invisible — and
+`state.carrying` asks this table which pocket a name lives in, so it was
+silently answering "the item pocket" for every one of them.
+
+**`warp_event`'s destination index can be `-1`.** Six warps were refused by
+`(\d+)`, taking four real edges out of the Celadon and Goldenrod department
+store elevators with them. A dropped edge is a place the router cannot leave.
+They are kept now with `to_warp: None`, because "come out at warp 3" and "the
+script decides" are different answers.
+
+So `tests/cases/test_parsers.py` counts every parser against its own source
+file, and the counts are *derived* rather than written down — a hardcoded total
+needs updating whenever the disassembly moves, and would then be updated to
+whatever the parser currently produces, which is not a check at all. It also
+covers the two things a count cannot say: that the specific shapes which broke a
+pattern still match, and that no map file with warps in it fails to fold onto a
+map constant — since warps are found by that join, and a file that does not join
+contributes nothing, which is indistinguishable from a map with no doors.
+
+</details>
+
 ### `collision.py` — what you can walk on
 
 <!-- covers: pilot/collision.py @ 662b5a3f34cd -->
@@ -775,6 +810,12 @@ Battle-usable and field-usable are different lists, asked for by name rather
 than assumed to be the same: a Berry heals HP in a fight and is
 `ITEMMENU_NOUSE` outside one, so offering it on the map is offering a press that
 silently does nothing.
+
+Both of those questions are answered out of `items.attributes`, which is why a
+row missing from that table is not a cosmetic problem: an item with no row is an
+item that is never offered, and `state.carrying` answers "which pocket?" from
+the same place. That table dropped twenty-four rows for a while — see *a pattern
+that stops matching is invisible*, above.
 
 </details>
 
