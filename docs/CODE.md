@@ -1925,7 +1925,14 @@ when the code improves — and `--dead` is the half worth running: the functions
 with no executed statement in them at all, which were never *called*, which is a
 sharper finding than a partly-covered one.
 
-It named 82 on its first run and names 63 now. Eleven were dead and are gone.
+It named 82 on its first run and names 64 now -- and the fact that the number
+went *up* by one at the end is the honest part. `DuelTask._play_out` is the
+"actually fight them" path, and no fixture can reach it: Joey's scripted battle
+still stands in Route 30's one walkable corridor tile, so the nearest spawned
+trainer is genuinely unreachable. Same category as the two switch paths, and
+recorded rather than papered over.
+
+Eleven were dead and are gone.
 Three of the rest had bugs in them, and none could have been found by running
 anything: a dict shape that was only correct because of the order its caller
 happened to read two things in; the forced-switch path in section 5, which no

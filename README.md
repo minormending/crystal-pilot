@@ -793,7 +793,8 @@ tools/coverage --reuse --dead    # a second question, without re-running
 `--dead` is the half worth running. A function with no executed statement in it
 was never *called*, which is a much sharper finding than a partly-covered one:
 it is either dead code or an untested path, and both are worth a name. It listed
-82 the first time; there are 63 now.
+82 the first time; there are 64 now -- and it going *up* by one at the end is
+the honest part, because the last thing added has a path no fixture can reach.
 
 Eleven were dead and are gone. Three of the rest had bugs in them, and none of
 the three could have been found by running anything:
