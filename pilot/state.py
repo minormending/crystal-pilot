@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from . import items as I
 from . import symbols as S
 from .gamedata import GameData
 from .session import Session
@@ -193,14 +194,25 @@ class GameStateReader:
         )
 
     # --- bag ---------------------------------------------------------------
-    def balls(self) -> list[tuple[int, int]]:
-        """The BALL pocket as [(item_id, quantity)].
+    def pocket(self, which: int) -> list[tuple[int, int]]:
+        """One pack pocket as [(item_id, quantity)].
 
-        wNumBalls is the number of *kinds* of ball carried, not how many balls --
-        the quantity is the second byte of each entry.
+        Every pocket has the same shape -- a count of *kinds* followed by
+        (item, quantity) pairs -- so there is one reader rather than one per
+        pocket. The count is kinds, not units: five Poke Balls and three Great
+        Balls is a count of two.
+
+        The per-pocket limit is the game's own (`MAX_ITEMS` 20, `MAX_BALLS` 12),
+        and it is a real bound rather than a defensive one. Reading twenty
+        entries out of the ball pocket walks eight entries past the end of
+        `wBalls` and reports whatever `wNumKeyItems` and the key items after it
+        happen to hold as balls -- which is worse than reporting nothing,
+        because the numbers look plausible.
         """
-        n = min(self.s.rb("wNumBalls"), 20)
-        base = self.s.sym.addr("wBalls")
+        count_sym, list_sym = I.POCKET_SYMBOLS[which]
+        limit = I.POCKET_LIMITS[which]
+        n = min(self.s.rb(count_sym), limit)
+        base = self.s.sym.addr(list_sym)
         out = []
         for i in range(n):
             item = self.s.rb(base + i * 2)
@@ -209,8 +221,51 @@ class GameStateReader:
             out.append((item, self.s.rb(base + i * 2 + 1)))
         return out
 
+    def balls(self) -> list[tuple[int, int]]:
+        """The BALL pocket as [(item_id, quantity)]."""
+        return self.pocket(I.BALL_POCKET)
+
+    def items(self) -> list[tuple[int, int]]:
+        """The ITEM pocket as [(item_id, quantity)].
+
+        The pocket next to the one this pilot has always read. Everything that
+        heals, cures or is worth picking up off a route lives here, so without
+        it a Potion in the bag is invisible and the only answer to a hurt party
+        is the walk to a Pokemon Center.
+        """
+        return self.pocket(I.ITEM_POCKET)
+
     def ball_count(self, item_id: int) -> int:
         return next((q for i, q in self.balls() if i == item_id), 0)
+
+    def item_count(self, item_id: int) -> int:
+        return next((q for i, q in self.items() if i == item_id), 0)
+
+    def carrying(self, name: str) -> int:
+        """How many of an item named by its constant, in whichever pocket holds it.
+
+        Saves every caller from knowing which pocket a name lives in, which is
+        the one detail about the bag that is genuinely arbitrary: POKE_BALL is
+        in the ball pocket and BERRY_JUICE is not, and nothing about either name
+        says so.
+        """
+        iid = self.gd.item_id(name)
+        which = I.attributes(self.gd.root_str).get(name, {}).get(
+            "pocket", I.ITEM_POCKET)
+        if which not in I.POCKET_SYMBOLS:
+            return 0
+        return next((q for i, q in self.pocket(which) if i == iid), 0)
+
+    def money(self) -> int:
+        """How much the player is carrying.
+
+        Three bytes, big-endian, plain binary -- not the packed BCD that Gen 1
+        used. `bigdt MAX_MONEY` in engine/events/money.asm is the tell, and
+        MAX_MONEY is 999,999, which needs 20 bits and so cannot be BCD in three
+        bytes. Decoding it as BCD reads ¥1,000 as ¥232.
+        """
+        hi, mid, lo = self.s.rbytes("wMoney", 3)
+        return (hi << 16) | (mid << 8) | lo
 
     def tile_collision(self) -> int:
         """Collision value of the tile the player stands on (wPlayerTileCollision)."""

@@ -83,6 +83,14 @@ class Check:
         if not got >= floor:
             raise Failure(f"{what or 'value'}: expected >= {floor!r}, got {got!r}")
 
+    def lt(self, got, ceiling, what: str = ""):
+        if not got < ceiling:
+            raise Failure(f"{what or 'value'}: expected < {ceiling!r}, got {got!r}")
+
+    def lte(self, got, ceiling, what: str = ""):
+        if not got <= ceiling:
+            raise Failure(f"{what or 'value'}: expected <= {ceiling!r}, got {got!r}")
+
     def contains(self, haystack, needle, what: str = ""):
         if needle not in haystack:
             raise Failure(f"{what or 'value'}: {needle!r} not found in {haystack!r}")
@@ -205,12 +213,25 @@ class Ctx(Check):
         The early game has none (Elm's aide hands them over later), and buying
         them would mean driving a Mart, which is not what these tests are for.
         """
-        base = p.session.sym.addr("wBalls")
-        p.session.wb("wNumBalls", len(entries))
-        for i, (item, qty) in enumerate(entries):
-            p.session.wb(base + i * 2, item)
-            p.session.wb(base + i * 2 + 1, qty)
-        p.session.wb(base + len(entries) * 2, 0xFF)
+        self.give_items(p, ((1, entries),))
+
+    def give_items(self, p, pockets) -> None:
+        """Test-only: write pockets straight into the bag.
+
+        `pockets` is [(pocket, [(item_id, quantity), ...]), ...]. The same
+        writer for both pockets, because they have the same shape, and because
+        a test that wants a Potion *and* a ball should not need two helpers
+        that could drift apart.
+        """
+        from pilot import items as I
+        for which, entries in pockets:
+            count_sym, list_sym = I.POCKET_SYMBOLS[which]
+            base = p.session.sym.addr(list_sym)
+            p.session.wb(count_sym, len(entries))
+            for i, (item, qty) in enumerate(entries):
+                p.session.wb(base + i * 2, item)
+                p.session.wb(base + i * 2 + 1, qty)
+            p.session.wb(base + len(entries) * 2, 0xFF)
 
     def into_wild_battle(self, p, tries: int = 3):
         """Test-only: walk the grass until a wild battle is under way.

@@ -150,6 +150,17 @@ class GameData:
                 "effect_chance": int(chance),
             }
 
+    @property
+    def root_str(self) -> str:
+        """The source root as a string, for the `lru_cache`d data loaders.
+
+        `Path` is unhashable-adjacent enough to be a nuisance here: it hashes
+        fine, but two Paths that name the same tree by different spellings
+        cache twice, and every loader in `wild` and `items` is keyed on this.
+        One spelling, taken from one place.
+        """
+        return str(self.root)
+
     # --- lookups -----------------------------------------------------------
     def species_id(self, name: str) -> int:
         """Accepts 'pikachu', 'PIKACHU', 'Mr. Mime', or a raw numeric id."""
