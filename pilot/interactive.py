@@ -43,10 +43,15 @@ class InteractiveSession:
         # cartridge RAM too), so play continues exactly where the task left off.
         self._worker_factory = worker_factory
         self._worker = None
-        # record is a callable(pilot, title) -> Recorder|None, supplied by the
-        # CLI so interactive tasks honour the same --record flags.
+        # record is a callable(pilot, title, take) -> Recorder|None, supplied
+        # by the CLI so interactive tasks honour the same --record flags. The
+        # take number is what keeps one file per dispatched task.
         self._record = record
         self._take = 0
+        # The speed the *player* asked for, which is what play returns to after
+        # a command. Held here because PyBoy has `set_emulation_speed` and no
+        # way to read it back, so the only record of the choice is this one.
+        self._play_speed = 1
         self._menu = None
         if in_game_menu and source is not None:
             from .ingame import InGameMenu
@@ -72,6 +77,18 @@ class InteractiveSession:
             self.p.collision._calibrated = False
             self.p.calibrate()
 
+    def _resume_play_speed(self) -> None:
+        """Back to the speed the player chose.
+
+        This runs after every command, because a task that had no worker to
+        run on ran in this window and left the emulator unthrottled. It used to
+        pass a literal 1 -- which meant the `speed` command set the speed and
+        then had it reset on the very next line, so it printed the new speed and
+        changed nothing. A command that reports what it did not do is the
+        failure this repository keeps finding.
+        """
+        self.p.session.pyboy.set_emulation_speed(self._play_speed)
+
     # --- stdin reader ------------------------------------------------------
     def _reader(self) -> None:
         while self.running:
@@ -85,7 +102,7 @@ class InteractiveSession:
     # --- main loop ---------------------------------------------------------
     def run(self) -> None:
         print(BANNER)
-        self.p.session.pyboy.set_emulation_speed(1)
+        self._resume_play_speed()
         t = threading.Thread(target=self._reader, daemon=True)
         t.start()
         while self.running:
@@ -95,7 +112,7 @@ class InteractiveSession:
                 cmd = None
             if cmd is not None:
                 self._dispatch(cmd)
-                self.p.session.pyboy.set_emulation_speed(1)
+                self._resume_play_speed()
             # TAB opens the pilot menu. It is read straight from SDL, so the
             # key never reaches the game, and the menu blocks here -- which is
             # what freezes the game while it is open.
@@ -148,15 +165,34 @@ class InteractiveSession:
                 bs = self.p.backups.take(self.p.session, "manual")
                 print(bs.describe())
             elif verb == "speed":
-                n = int(parts[1]) if len(parts) > 1 else 1
-                self.p.session.pyboy.set_emulation_speed(n)
-                print(f"emulation speed = {n}")
+                self._speed(parts[1:])
             elif verb == "grind":
                 self._grind(parts[1:])
             else:
                 print(f"unknown command {verb!r}; type help")
         except Exception as e:  # noqa: BLE001 -- a REPL reports a bad command rather than exiting
             print(f"command failed: {type(e).__name__}: {e}")
+
+    def _speed(self, args: list[str]) -> None:
+        """`speed <n>`: 0 is unlimited, 1 is normal play.
+
+        Remembered rather than just applied, so the reset after each command
+        returns to this instead of undoing it.
+        """
+        if args:
+            try:
+                n = int(args[0])
+            except ValueError:
+                print(f"'{args[0]}' is not a speed; try 0 (unlimited) or 1")
+                return
+            if n < 0:
+                print("speed cannot be negative; 0 means unlimited")
+                return
+        else:
+            n = 1
+        self._play_speed = n
+        self._resume_play_speed()
+        print(f"emulation speed = {n}" + (" (unlimited)" if n == 0 else ""))
 
     def _grind(self, args: list[str]) -> None:
         if not args:

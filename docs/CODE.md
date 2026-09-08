@@ -1578,7 +1578,7 @@ the only sign is a button that appears broken. And every `state.foo` the page
 reads must be a field the server publishes, since a renamed payload field
 renders as "undefined" on a phone with no console open.
 
-<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ 97ab0fc9edc2 -->
+<!-- covers: pilot/cli.py pilot/ingame.py pilot/overlay.py pilot/webui.py pilot/interactive.py @ ec3ea1b86ad3 -->
 
 The same tasks, three front ends, one `TaskResult` shape between them.
 
@@ -1614,6 +1614,35 @@ A malformed request also used to kill the pilot: `{"frames": "fast"}` raised a
 `ValueError` past the loop and into a `finally: self.stop()`, *after* the handler
 had already replied `{"ok": true}`. Both the handler and the planner validate
 now.
+
+</details>
+
+<details>
+<summary><b>Advanced detail:</b> interactive mode, and the command that lied</summary>
+
+`interactive.py` is the `play` command: a normal emulator window you play in,
+with a terminal beside it that hands control to the pilot on a typed command.
+The in-game menu from `ingame.py` is the same thing reached with TAB, drawn on
+the screen instead.
+
+**Tasks run on a second, windowless emulator.** An open window pins PyBoy to a
+few hundred fps, which would turn a six-second grind into minutes. State goes
+across as a save state — which carries cartridge RAM too — so play resumes
+exactly where the task left off. That is the difference from the web UI's
+approach, where one emulator does both and the idle loop is throttled instead.
+
+**The `speed` command reported a change it did not make.** It called
+`set_emulation_speed(n)` and printed the new speed, and then the loop reset the
+emulator to a literal `1` on the very next line, because that reset exists to
+put play back to normal after a task. So `speed 0` printed `emulation speed = 0`
+and ran at normal speed. The session remembers the chosen speed now and the
+reset returns to *that* — PyBoy has `set_emulation_speed` and no way to read it
+back, so the only record of the choice is the one this class keeps.
+
+That module had no tests at all when this was found; it was the top row of
+`tools/coverage`'s table, 131 statements with none of them run. It is also the
+module a person types into directly, which is the worst place for a command that
+says it did something and did not.
 
 </details>
 
@@ -1731,7 +1760,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ 202dd26beb71 -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ ba003cf3d7f3 -->
 
 ```bash
 ./run-tests                      # everything
@@ -1740,10 +1769,10 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-277 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+296 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
-**122 of them need nothing but the repository**, which is what CI has: the
+**123 of them need nothing but the repository**, which is what CI has: the
 disassembly is cloned but no ROM is built, because building one needs rgbds and
 no ROM is distributed. `tests/fake.py` is why that number is not 20 — a
 stand-in session over a work-RAM buffer, with scripted button responses and a
@@ -1752,10 +1781,10 @@ were decisions about a game state rather than anything needing a cartridge. The
 real readers, the real symbol-table parser, the real capture logic and the
 navigator's fallbacks all run against it.
 
-The other 155 are genuine integration tests — walking, the intro, crossing maps,
+The other 173 are genuine integration tests — walking, the intro, crossing maps,
 a real save — and skip themselves without a ROM rather than failing.
 
-**`--self-check` re-introduces twenty bugs one at a time** and checks the test
+**`--self-check` re-introduces twenty-one bugs one at a time** and checks the test
 meant to catch each one goes red, reverting every mutation afterwards. That is
 the only thing which proves a *test* works: a test written alongside a fix is
 written against a codebase where the bug is already gone, so it has never been
@@ -1776,11 +1805,18 @@ when the code improves — and `--dead` is the half worth running: the functions
 with no executed statement in them at all, which were never *called*, which is a
 sharper finding than a partly-covered one.
 
-It named 82 on its first run. Eleven were dead and are gone. Two of the rest had
-bugs in them, both in code that was unreachable for a reason: a dict shape that
-was only correct because of the order its caller happened to read things in, and
-the forced-switch path in section 5, which no fixture could reach because every
-fixture has a party of one.
+It named 82 on its first run and names 63 now. Eleven were dead and are gone.
+Three of the rest had bugs in them, and none could have been found by running
+anything: a dict shape that was only correct because of the order its caller
+happened to read two things in; the forced-switch path in section 5, which no
+fixture could reach because every fixture has a party of one; and the whole of
+`interactive.py`, which was the table's top row at 0% and where the `speed`
+command reported a change the next line of the loop undid.
+
+`SymbolTable.__len__` is the counter-example. A dunder nothing called, and using
+it beat deleting it: `len(sym)` against the `.sym` file's line count catches a
+truncated build, which otherwise surfaces much later as one unrelated feature
+quietly not working.
 
 ```bash
 tools/coverage                   # the table, worst-covered first

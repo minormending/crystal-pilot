@@ -173,3 +173,29 @@ def _(t):
     t.eq(crystal.starters["chikorita"]["ball"], (8, 4), "Chikorita's")
     t.eq(len(crystal.intro_legs), 3, "three doorways from bedroom to lab")
     t.eq(crystal.first_route["route"], "ROUTE_29", "and out onto Route 29")
+
+
+@test("the symbol table loaded a whole build, not the first few lines of one")
+def _(t):
+    """`len(sym)` against the `.sym` file's own line count.
+
+    `SymbolTable.__len__` existed and nothing called it, which
+    `tools/coverage --dead` pointed out. Using it is better than deleting it,
+    because the number is worth checking: a truncated or half-written `.sym`
+    resolves the handful of symbols it does contain and raises `KeyError` on
+    the rest, which surfaces much later as one unrelated feature not working.
+
+    Derived from the file rather than a figure written here -- the real count is
+    around 30,000 and would be another number to keep up to date.
+    """
+    p = t.pilot()
+    sym_file = p.session.sym.path
+    lines = [ln for ln in sym_file.read_text(errors="replace").splitlines()
+             if ln.strip() and not ln.lstrip().startswith(";")]
+    loaded = len(p.session.sym)
+    t.note(f"{loaded} symbols from {len(lines)} lines of {sym_file.name}")
+    t.gt(loaded, 1000, "a real build defines thousands of symbols")
+    # First definition wins, so duplicates make `loaded` smaller than the file's
+    # line count -- never larger, which would mean symbols from nowhere.
+    t.lte(loaded, len(lines), "and none were invented")
+    t.gt(loaded, len(lines) * 0.5, "while most lines produced one")

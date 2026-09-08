@@ -147,3 +147,95 @@ def _(t):
     t.false(out["ok"], "it could not buy any")
     t.contains(out["message"], "not stocking it today", "and says why")
     t.contains(out["message"], "also lists it", "and names somewhere else")
+
+
+# --- the task wrapper -------------------------------------------------------
+#
+# Everything above drives `traveler.restock` directly, which is where the work
+# happens -- and left `ShopTask` at 20% in `tools/coverage`'s table, the worst
+# real module in the project. The wrapper is not nothing: it decides *what* to
+# buy when nobody said, answers "no Mart sells that" without making the walk,
+# and maps a restock's dict onto the `TaskResult` every front end renders.
+
+
+@test("shop refuses an item no counter in the game stocks, without walking")
+def _(t):
+    p = t.pilot("route30")
+    where = p.traveler.current_const()
+    # Derived, not named: an item that exists and that no mart lists. Hardcoding
+    # one would be a second copy of the mart tables.
+    unsold = next(name for name in sorted(t.gamedata.items)
+                  if not t.world.shops_selling(name))
+    res = p.shop(item=unsold, want=1)
+    t.note(f"chose {unsold}: {res.message}")
+    t.eq(res.status, "blocked", "refused")
+    t.contains(res.message, "not something a Mart sells", "and says why")
+    t.eq(p.traveler.current_const(), where, "and went nowhere to find out")
+
+
+@test("shop refuses a name that is not an item at all")
+def _(t):
+    p = t.pilot("route30")
+    res = p.shop(item="NOSUCHITEM", want=1)
+    t.eq(res.status, "blocked", "refused")
+    t.contains(res.message, "NOSUCHITEM", "naming what was asked for")
+
+
+def _task(p):
+    from pilot.tasks.shop import ShopTask
+    return ShopTask(p.session, p.reader, p.control, p.nav, p.world, p.gamedata,
+                    p.traveler, p.saver, p.backups, log=lambda *a, **k: None)
+
+
+@test("shop takes the shorthands a person would actually type")
+def _(t):
+    from pilot.tasks.shop import BALLS, POTIONS
+    st = _task(t.pilot("route30"))
+    # A shorthand means "the preference-ordered list", so a refused first
+    # choice falls through to the second. `poke-balls` normalises to
+    # POKE_BALLS, which is not an item -- it is the plural somebody types.
+    for typed in ("balls", "BALL", "poke-balls", "pokeball"):
+        t.eq(st._resolve(typed), BALLS, f"{typed!r} means the ball list")
+    t.eq(st._resolve("potions"), POTIONS, "and potions means the potion list")
+    # An exact item name is taken literally, including one that looks like a
+    # shorthand: asking for POKE_BALL means that ball and not its upgrade.
+    t.eq(st._resolve("POTION"), ("POTION",), "a real name is literal")
+    t.eq(st._resolve("poke ball"), ("POKE_BALL",), "and so is POKE_BALL itself")
+
+
+@test("shop with nothing named buys balls when there are none, potions when there are")
+def _(t):
+    from pilot.tasks.shop import BALLS, POTIONS
+    p = t.pilot("route30")
+    st = _task(p)
+    t.eq(p.reader.carrying("POKE_BALL"), 0, "the fixture carries no balls")
+    t.eq(st._resolve(None), BALLS, "so the default errand is balls")
+    t.give_balls(p, entries=((t.gamedata.item_id("POKE_BALL"), 5),))
+    t.eq(p.reader.carrying("POKE_BALL"), 5, "now it carries five")
+    t.eq(st._resolve(None), POTIONS, "and the default moves on to potions")
+
+
+@test("shop reports the wallet and what it spent, not just that it worked")
+def _(t):
+    p = t.pilot("route30", timeout=900)
+    before = p.reader.money()
+    res = p.shop(item="POTION", want=3)
+    t.note(f"{res.status}: {res.message} / {res.stats}")
+    t.eq(res.status, "completed", res.message)
+    # The stats dict is what the CLI, the in-game menu and the web UI all
+    # render. `grind` built its counts and never assigned them, which is the
+    # bug this shape of assertion exists for.
+    t.eq(res.stats["bought"], 2, "two Potions")
+    t.eq(res.stats["spent"], 600, "at 300 each")
+    t.eq(res.stats["wallet"], before - 600, "and the wallet agrees")
+    t.eq(res.stats["shop"], "CHERRYGROVE_MART", "naming the counter")
+    t.contains(res.stats["wanted"], "POTION", "and what was asked for")
+
+
+@test("shop will not start while a battle is running")
+def _(t):
+    p = t.pilot("route30")
+    t.into_wild_battle(p)
+    res = p.shop(item="POTION", want=1)
+    t.eq(res.status, "blocked", "refused")
+    t.contains(res.message, "finish the battle first", "and says why")

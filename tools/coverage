@@ -110,8 +110,11 @@ def run_suite(extra: list[str], reuse: bool = False):
     if proc.returncode != 0:
         print("  warning: the suite did not pass, so this describes a run "
               "with failures in it", file=sys.stderr)
-        for ln in tail[-12:]:
-            print(f"    | {ln}", file=sys.stderr)
+        # The failures, not the last few lines -- which are whatever happened
+        # to run last, and are usually all `ok`.
+        bad = [ln for ln in tail if "FAIL" in ln or "->" in ln]
+        for ln in (bad or tail)[-12:]:
+            print(f"    | {ln.strip()}", file=sys.stderr)
     if not data.exists():
         die("coverage produced no data file")
 

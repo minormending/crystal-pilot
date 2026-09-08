@@ -234,6 +234,17 @@ MUTATIONS = [
             self.s.tap("down", hold=4, gap=6)''',
         "stops the switch before",
     ),
+    (
+        # The `speed` command printed the new speed and then had it reset on
+        # the very next line of the loop, so it changed nothing and said
+        # otherwise. `interactive.py` had no tests at all when this was found;
+        # it was the top row of `tools/coverage`'s table.
+        "the speed command is undone by the reset after every command",
+        "pilot/interactive.py",
+        "        self.p.session.pyboy.set_emulation_speed(self._play_speed)",
+        "        self.p.session.pyboy.set_emulation_speed(1)",
+        "survives the reset",
+    ),
 ]
 
 

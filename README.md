@@ -672,7 +672,7 @@ slot is one step backwards that the next job overwrites.
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-277 tests. Most of them exist because of a specific bug that shipped and was
+296 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -700,9 +700,9 @@ drive a real emulator skip themselves. The runner says so rather than reporting
 a bare pass:
 
 ```
-122 passed, 155 skipped, 0 failed  (0.9s)
+123 passed, 173 skipped, 0 failed  (1.0s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (155 tests need a ROM built from the disassembly)
+  (173 tests need a ROM built from the disassembly)
 ```
 
 That used to be 20 of 108, and the 20 only read data files — the badge covered
@@ -734,7 +734,8 @@ caught  collision map reads the wrong quadrant of each block
 caught  take_here drops two keys on its early return
 caught  a party list that will not drive is reported as a blackout
 caught  a forced switch presses A without checking the cursor arrived
-20 caught, 0 missed
+caught  the speed command is undone by the reset after every command
+21 caught, 0 missed
 ```
 
 Each is a bug that was live in this repository rather than a hypothetical. They
@@ -773,11 +774,24 @@ tools/coverage --reuse --dead    # a second question, without re-running
 `--dead` is the half worth running. A function with no executed statement in it
 was never *called*, which is a much sharper finding than a partly-covered one:
 it is either dead code or an untested path, and both are worth a name. It listed
-82 the first time. Eleven were dead and are gone; two of the rest had bugs in
-them, in code that was unreachable for a reason — a dict shape that was only
-correct because of the order its caller happened to read things in, and the
-switch-a-Pokémon path that no fixture could reach because every fixture has a
-party of one.
+82 the first time; there are 63 now.
+
+Eleven were dead and are gone. Three of the rest had bugs in them, and none of
+the three could have been found by running anything:
+
+- a dict shape that was only correct because of the order its caller happened
+  to read two things in — so the check for it is static, in `test_contracts.py`
+- the switch-a-Pokémon path, which no fixture could reach because every fixture
+  has a party of one
+- `interactive.py`, which was the whole top row of the table at 0%, where the
+  `speed` command printed the speed it had just set and then had it reset on the
+  next line of the loop
+
+`SymbolTable.__len__` was on the list too, and is the counter-example worth
+recording: a dunder nothing called. Using it turned out to be better than
+deleting it — `len(sym)` against the `.sym` file's own line count catches a
+truncated build, which otherwise surfaces much later as one unrelated feature
+not working.
 
 Two mutations have since been dropped rather than papered over, each with the
 reason recorded next to the list. One because the code genuinely self-corrects

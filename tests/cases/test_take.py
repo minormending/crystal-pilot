@@ -127,3 +127,65 @@ def _(t):
     again = p.take(max_things=8)
     t.true(again.ok or again.status == "completed",
            f"second run is not an error: {again.message}")
+
+
+# --- the task wrapper -------------------------------------------------------
+#
+# Everything above drives `traveler.take_here` directly, which left `TakeTask`
+# unentered -- and `TakeTask.run` is where `out["unreachable"]` was read
+# unguarded against a dict that did not always carry it. The shape is fixed and
+# `test_contracts.py` now checks it statically, but a test that actually runs
+# the wrapper is what proves the two agree.
+
+
+@test("take through the task reports what it offered and what it got")
+def _(t):
+    p = t.pilot("route30", timeout=1200)
+    offered = len(p.traveler.things_here())
+    t.gt(offered, 0, "Route 30 is holding something")
+    res = p.take()
+    t.note(f"{res.status}: {res.message} / {res.stats}")
+    t.eq(res.status, "completed", res.message)
+    t.eq(res.stats["offered"], offered, "it says how many it was offered")
+    t.eq(res.stats["took"], 3, "and how many it got")
+    t.eq(res.stats["where"], "ROUTE_30", "and where")
+    t.contains(res.stats["items"], "ANTIDOTE", "naming what came back")
+
+
+@test("take on an emptied map is completed with nothing taken")
+def _(t):
+    p = t.pilot("route30", timeout=1200)
+    p.take()
+    # The second run reaches both trees again -- they regrow and have no flag --
+    # and finds nothing on them. Reaching something empty is not a failure;
+    # only being unable to reach it is.
+    res = p.take()
+    t.note(f"{res.status}: {res.message} / {res.stats}")
+    t.eq(res.status, "completed", f"the errand is idempotent ({res.message})")
+    t.eq(res.stats["took"], 0, "with nothing taken the second time")
+    t.eq(res.stats.get("unreachable", 0), 0, "and nothing out of reach")
+
+
+@test("take on a map holding nothing says so without walking")
+def _(t):
+    p = t.pilot("route30")
+    # The early return, which is the path whose dict was missing two keys. It
+    # is reached by asking about a map that has nothing rather than by emptying
+    # one, so no walk is involved and the stats are the ones the wrapper builds
+    # itself.
+    p.traveler.things_here = list        # a map holding nothing
+    where = p.traveler.current_const()
+    res = p.take()
+    t.eq(res.status, "completed", res.message)
+    t.eq(res.stats, {"took": 0}, "the wrapper's own stats")
+    t.contains(res.message, "nothing left to pick up", "and it says so")
+    t.eq(p.traveler.current_const(), where, "having gone nowhere")
+
+
+@test("take will not start while a battle is running")
+def _(t):
+    p = t.pilot("route30")
+    t.into_wild_battle(p)
+    res = p.take()
+    t.eq(res.status, "blocked", "refused")
+    t.contains(res.message, "finish the battle first", "and says why")
