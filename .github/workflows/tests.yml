@@ -24,12 +24,12 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Fetch the pokecrystal disassembly
         run: git clone --depth 1 https://github.com/pret/pokecrystal.git "$HOME/pokecrystal"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 

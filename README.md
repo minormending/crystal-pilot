@@ -703,7 +703,7 @@ drive a real emulator skip themselves. The runner says so rather than reporting
 a bare pass:
 
 ```
-126 passed, 173 skipped, 0 failed  (1.1s)
+126 passed, 173 skipped, 0 failed  (1.5s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
   (173 tests need a ROM built from the disassembly)
 ```
