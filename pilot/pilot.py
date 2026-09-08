@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from . import advice, wild
 from .backup import BackupManager, GameSaver
 from .collision import CollisionMap
 from .control import Control
@@ -373,10 +374,39 @@ class Pilot:
                 lines.append(f"  slot {m.slot + 1}: {m.describe(self.gamedata)}")
         else:
             lines.append("party    : (empty)")
-        pc = self.world.nearest_pokecenter(
-            self.gamedata.map_name(loc.group, loc.number))
+        here = self.gamedata.map_name(loc.group, loc.number)
+        lines.append(f"wallet   : {r.money()}")
+        bag = r.items()
+        if bag:
+            lines.append("bag      : " + ", ".join(
+                f"{self.gamedata.item_name(i)} x{q}" for i, q in bag))
+        balls = r.balls()
+        if balls:
+            lines.append("balls    : " + ", ".join(
+                f"{self.gamedata.item_name(i)} x{q}" for i, q in balls))
+        pc = self.world.nearest_pokecenter(here)
         if pc:
             lines.append(f"nearest Center: {pc[-1][1]} ({len(pc)} hops)")
+        # What is lying around here, and what the clock is doing to the grass.
+        # Both are things the pilot has always been able to work out and never
+        # said, which is the same shape of gap as the wallet above.
+        things = self.traveler.things_here()
+        if things:
+            lines.append("here     : " + ", ".join(
+                t["item"] or "a fruit tree" for t in things))
+        span = wild.level_range(self.gamedata.root_str, here)
+        if span:
+            lines.append(f"grass    : Lv{span[0]}-{span[1]}")
+            clock = advice.gone_message(
+                self.gamedata, here, self.session.rb("wTimeOfDay"), None)
+            if clock:
+                lines.append(f"the clock: {clock}")
+            lead = next((m for m in party if not m.fainted), None)
+            if lead is not None:
+                where_else = advice.better_grind(
+                    self.gamedata, self.world, here, lead.level)
+                if where_else:
+                    lines.append(f"better   : {where_else['message']}")
         return "\n".join(lines)
 
     def settle_for_save(self, rounds: int = 12) -> tuple[bool, str]:

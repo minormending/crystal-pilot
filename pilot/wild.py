@@ -94,3 +94,52 @@ def levels_on(source_root: str, map_const: str, species: str) -> tuple[int, int]
     levels = [e["level"] for e in load(str(source_root)).get(map_const, [])
               if e["species"] == species]
     return (min(levels), max(levels)) if levels else (0, 0)
+
+
+def level_range(source_root: str, map_const: str,
+                time_of_day: int | None = None,
+                kinds: tuple[str, ...] = ("grass",)) -> tuple[int, int] | None:
+    """(lowest, highest) level this map's grass gives, or None if it has none.
+
+    The level has been sitting in front of `species_on` and gone unread. It is
+    the number that decides whether a battle pays: a Lv3 Sentret is worth
+    fighting with a Lv2 lead and not with a Lv14 one, and "this grind is slow"
+    is exactly that comparison.
+
+    None rather than (0, 0) for a map with no table, because "no wild Pokemon
+    here" and "wild Pokemon at level zero" are different claims and a caller
+    ranking places has to be able to drop the first.
+    """
+    entries = [e for e in load(str(source_root)).get(map_const, [])
+               if e["kind"] in kinds]
+    if time_of_day is not None:
+        entries = [e for e in entries
+                   if e["time"] is None or e["time"] == time_of_day]
+    levels = [e["level"] for e in entries]
+    return (min(levels), max(levels)) if levels else None
+
+
+def hours(source_root: str, map_const: str,
+          kinds: tuple[str, ...] = ("grass",)) -> list[dict] | None:
+    """Every hour of the same patch of grass, indexed by wTimeOfDay.
+
+    `[{species: (low, high)}, ...]` with one entry per block -- morning, day,
+    night -- so `hours[NITE]` is what is out after dark whatever the clock
+    currently says.
+
+    Both readers above take a *single* time of day and the pilot has only ever
+    passed them one, the hour it is now. So what it knows about the grass it is
+    standing in has always been one third of what the cartridge says. This is
+    the other two thirds, and it is what lets a menu say *PIDGEY is here in the
+    morning, not now* instead of quietly dropping a species from the list.
+    """
+    entries = [e for e in load(str(source_root)).get(map_const, [])
+               if e["kind"] in kinds and e["time"] is not None]
+    if not entries:
+        return None
+    blocks: list[dict] = [{}, {}, {}]
+    for e in entries:
+        block = blocks[e["time"]]
+        low, high = block.get(e["species"], (e["level"], e["level"]))
+        block[e["species"]] = (min(low, e["level"]), max(high, e["level"]))
+    return blocks

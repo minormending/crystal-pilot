@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 
+from .. import advice
 from ..battle import BattleEngine, BattlePolicy
 from .base import TaskLifecycle, TaskResult
 
@@ -56,6 +57,9 @@ class GrindTask(TaskLifecycle):
 
         loc = self.r.location()
         route = self.gd.map_pretty(loc.group, loc.number)
+        # The constant, not the pretty name: the wild tables and the world graph
+        # are both keyed on MAP_CONST, and `map_pretty` is for reading.
+        route_const = self.gd.map_name(loc.group, loc.number)
         route_key = loc.key
         self.log(f"grind: {mon.species_name} Lv{mon.level} -> Lv{to_level} on {route}")
 
@@ -152,6 +156,13 @@ class GrindTask(TaskLifecycle):
                 res.message = (f"stopped at Lv{mon.level} (target Lv{to_level}): "
                                f"{blocked_reason or 'unknown reason'}")
 
+            # Where to go instead, not just that here is slow. Only worth
+            # saying when the grind did not finish -- a run that reached its
+            # target does not need advice about a route it is leaving. Waiting
+            # is offered ahead of walking, because an hour costs no legs.
+            if res.status != "completed":
+                self._say_where_instead(res, route_const, mon.level)
+
             should_save = save_when_done and (
                 res.status == "completed" or on_timeout == "save"
             )
@@ -165,6 +176,24 @@ class GrindTask(TaskLifecycle):
         return res
 
     # --- helpers -----------------------------------------------------------
+    def _say_where_instead(self, res, route: str, level: int) -> None:
+        """Note a better hour or a better route, in that order.
+
+        Waiting beats walking when both are on offer, so the hour is asked
+        first: it costs no route and no legs. On Crystal the answer is almost
+        always None, because its three blocks carry the same levels on every
+        Johto route -- which is worth having anyway, since a hack that changes
+        that gets the advice for free.
+        """
+        hour = advice.better_hour(self.gd, route, level,
+                                  self.s.rb("wTimeOfDay"))
+        if hour is not None:
+            res.note(hour["message"])
+            return
+        where = advice.better_grind(self.gd, self.w, route, level)
+        if where is not None:
+            res.note(f"slow here -- {where['message']}")
+
     def _resolve_target(self, species, slot) -> int:
         party = self.r.party()
         if not party:
