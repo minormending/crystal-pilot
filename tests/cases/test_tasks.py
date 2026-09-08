@@ -237,3 +237,40 @@ def _(t):
     t.eq(res.stats["not_present"] + res.stats["unreachable"], 3,
          "every trainer accounted for as absent or unreachable")
     t.gte(res.stats["not_present"], 1, "the story-gated trainer is detected")
+
+
+@test("a grind that did something reports what it did")
+def _(t):
+    from pilot.session import Budget
+    p = t.pilot("pre_learn_chikorita", timeout=150)
+    p.session.set_budget(Budget(max_frames=900_000, max_wall_seconds=120))
+    lead = p.reader.mon(0)
+    res = p.grind(slot=0, to_level=lead.level + 1, save_when_done=False,
+                  on_timeout="none")
+    t.eq(res.status, "completed", res.message)
+    # `stats` was built and mutated all the way through the loop and only ever
+    # reached `res` on the two *early return* paths -- so every grind that
+    # actually fought anything reported `{}`, and the printed row was a message
+    # and a `saved:` line. It also made the README's own example output
+    # unproducible.
+    for key in ("battles", "won", "fled", "heals", "encounters", "level",
+                "levels_gained", "frames", "wall"):
+        t.contains(res.stats, key, f"stats carries {key}")
+    t.gt(res.stats["battles"], 0, "and the battle count is real")
+    t.eq(res.stats["level"], lead.level + 1, "as is the level reached")
+    t.contains(res.render(), "battles=", "the rendered row shows it")
+
+
+@test("every task that finishes reports a stats dict, not an empty one")
+def _(t):
+    # The general form of the bug above: a task collects counts and drops them
+    # at the last step. Cheap to check across the ones that can run here.
+    p = t.pilot("route30", timeout=600)
+    checks = [
+        ("take", lambda: p.take()),
+        ("heal", lambda: p.heal()),
+    ]
+    for name, run in checks:
+        res = run()
+        t.true(isinstance(res.stats, dict), f"{name} returns a dict")
+        t.gt(len(res.stats), 0, f"{name} reports something: {res.stats}")

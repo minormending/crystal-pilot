@@ -28,7 +28,8 @@ grind: healing (12/33 HP)
   heal: healed, returning to ROUTE_29
 save: committed (game wrote its save data)
 done: CYNDAQUIL reached Lv25 (from Lv5) on Route 29
-  battles=75  won=75  fled=0  heals=1  encounters=75  level=25  saved: yes
+  battles=75  won=75  fled=0  heals=1  encounters=75  level=25  levels_gained=20  frames=1,284,113  wall=46.2s
+  saved: yes
 ```
 
 Because it runs headless at roughly 28,000 fps (≈470× real time), an hour of
@@ -670,7 +671,7 @@ slot is one step backwards that the next job overwrites.
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-253 tests. Most of them exist because of a specific bug that shipped and was
+257 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it

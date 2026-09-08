@@ -133,6 +133,18 @@ class GrindTask(TaskLifecycle):
                 if outcome.result == "timeout":
                     blocked_reason = "a battle stopped responding"
                     break
+                if outcome.result == "lost":
+                    # Blacking out is a different problem from every other way
+                    # this loop stops, and it has to be said. The grind *did*
+                    # stop before this, because a white-out moves the player to
+                    # a Pokemon Center and `_ensure_grass` then fails -- so the
+                    # report read "wandered off the route and could not return"
+                    # for a party that had been wiped. And with the party healed
+                    # by the white-out, nothing else in the result gave it away.
+                    stats["lost"] = stats.get("lost", 0) + 1
+                    blocked_reason = ("blacked out -- the party was wiped and "
+                                      "the game moved it to a Pokemon Center")
+                    break
 
         # --- wrap up -------------------------------------------------------
         with self.wrapping(res):
@@ -142,6 +154,18 @@ class GrindTask(TaskLifecycle):
             stats["levels_gained"] = mon.level - start_level
             stats["frames"] = f"{self.s.budget.frames_used:,}"
             stats["wall"] = f"{time.monotonic() - t0:.1f}s"
+            # Assigned here, and it was not. `stats` is built and mutated all
+            # the way through the loop -- battles, wins, flees, heals,
+            # encounters -- and then only ever reached `res` on the two *early
+            # return* paths. So every grind that actually did something
+            # reported nothing: `res.stats == {}`, and the row the CLI printed
+            # was a message and a `saved:` line.
+            #
+            # Which also made the README's own example output unproducible. It
+            # shows `battles=75 won=75 fled=0 heals=1 encounters=75 level=25`,
+            # and that is the shape this dict has always had -- collected
+            # correctly, thrown away at the last step.
+            res.stats = stats
 
             if mon.level >= to_level:
                 res.status = "completed"

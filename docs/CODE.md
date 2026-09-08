@@ -215,6 +215,14 @@ Note `blocked` and `timeout` are distinct statuses. "I could not get there" and
 "I ran out of budget" are different problems and want different responses from
 whoever asked.
 
+And the stats dict has to actually be *assigned* to the result, which sounds
+like nothing and was a real bug for a long time: `grind` built its counts,
+mutated them all the way through the loop, and only ever put them on `res` in
+its two *early return* paths. So a grind that had gone and fought seventy-five
+battles reported `{}` — a message and a `saved:` line, with the counts collected
+correctly and dropped at the last step. It also made this README's own example
+output unproducible.
+
 </details>
 
 ---
@@ -584,7 +592,7 @@ usually the one that mattered.
 
 ## 5. Battles
 
-<!-- covers: pilot/battle.py pilot/control.py @ dcac9654c9fb -->
+<!-- covers: pilot/battle.py pilot/control.py @ c464f8749a96 -->
 
 One engine, driven by a policy. A grind wants to win, a hunt wants to leave, a
 catch wants to weaken and stop — all three are the same loop with different
@@ -678,6 +686,20 @@ opened.
 
 <details>
 <summary><b>Advanced detail:</b> why `fight_if_cornered` exists, and what the bag fixed</summary>
+
+**A battle that ends is not a battle that was won.** Blacking out *ends* the
+battle, so `wBattleMode` clears on the same tick `LostBattle` fires — and
+`next_decision`'s "is it over?" test ran before the events were scanned, so it
+returned `ended`, which `run` maps to **won**. Measured with a Lv14 lead on 1HP
+against a Lv60 enemy: the party was wiped, `mon_fainted` and `lost_battle` both
+fired, and the engine said it won.
+
+That is the worst available way to be wrong here, because everything else agrees
+with it: a white-out heals the party and moves it to a Pokémon Center, so the HP
+afterwards looks like a win too. `grind` did not even check for a loss — it
+carried on, failed the next `_ensure_grass`, and reported *"wandered off the
+route and could not return"*. True, and not the reason. The loss is checked
+before the "is it over?" test now, and the grind stops and says "blacked out".
 
 **Trainer battles cannot be fled.** A policy that only knows how to run will
 stand in one losing HP until something faints, so `fight_if_cornered` turns "I
@@ -989,7 +1011,7 @@ counting `session.presses` was measuring a list that movement never touches.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 1dee4165d242 -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ c8c9beb14bcb -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -1595,7 +1617,7 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-253 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+257 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
 **104 of them need nothing but the repository**, which is what CI has: the

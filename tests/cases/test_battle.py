@@ -5,6 +5,7 @@ reported success while doing the wrong thing. Move selection fell back to
 whatever the cursor happened to sit on; fleeing stopped working entirely and
 fought instead; declining a new move still replaced one.
 """
+from pilot import symbols as S
 from pilot.battle import BattleEngine, BattlePolicy
 from pilot.control import FIGHT, PACK, PKMN
 
@@ -177,3 +178,64 @@ def _(t):
     # The target is tracked by party slot, so the task keeps training the same
     # Pokemon through the species change.
     t.eq(mon.slot, 0, "still slot 1")
+
+
+@test("blacking out is reported as a loss, not as a win")
+def _(t):
+    p = t.pilot("route30", timeout=600)
+    t.give_balls(p)
+    t.into_wild_battle(p)
+    s = p.session
+    # A Lv14 lead on 1HP against something it cannot one-shot. Without the
+    # strong enemy the fixture's Quilava wins before it can be knocked out,
+    # which is why this path had never been exercised.
+    s.wb("wEnemyMonLevel", 60)
+    for sym in ("wEnemyMonHP", "wEnemyMonMaxHP"):
+        addr = s.sym.addr(sym)
+        s.wb(addr, 300 >> 8)
+        s.wb(addr + 1, 300 & 0xFF)
+    hp = s.sym.addr("wBattleMonHP")
+    s.wb(hp, 0)
+    s.wb(hp + 1, 1)
+    base = s.sym.addr("wPartyMon1")
+    s.wb(base + S.MON_HP, 0)
+    s.wb(base + S.MON_HP + 1, 1)
+
+    out = BattleEngine(s, p.reader, p.control, p.gamedata,
+                       BattlePolicy(use_items=False, flee_below=0.0),
+                       log=lambda m: None).run(max_turns=20, menu_open=True)
+    # Blacking out *ends* the battle, so wBattleMode clears on the same tick
+    # LostBattle fires -- and an "is it over?" test that runs before the events
+    # are scanned returns "ended", which `run` maps to won. This is the worst
+    # available way to be wrong: the white-out heals the party and moves it to
+    # a Pokemon Center, so even the HP afterwards looks like a win.
+    t.eq(out.result, "lost", "the party was wiped")
+    t.contains(" ".join(out.notes), "blacked out", "and it says so")
+
+
+@test("a grind that blacks out says that, not that it lost the grass")
+def _(t):
+    # The report before this read "wandered off the route and could not
+    # return", because a white-out moves the player to a Pokemon Center and
+    # `_ensure_grass` then fails. True, and not the reason -- and with the
+    # party healed by the white-out, nothing else in the result gave it away.
+    import pilot.battle as B
+    from pilot.battle import BattleOutcome
+    p = t.pilot("route30", timeout=300)
+    real = B.BattleEngine.run
+
+    def wiped(self, *a, **k):
+        out = BattleOutcome()
+        out.result = "lost"
+        out.note("blacked out")
+        return out
+
+    B.BattleEngine.run = wiped
+    try:
+        res = p.grind(slot=0, to_level=40, save_when_done=False,
+                      on_timeout="none")
+    finally:
+        B.BattleEngine.run = real
+    t.contains(res.message, "blacked out", f"says what happened: {res.message}")
+    t.eq(res.stats.get("lost"), 1, "and counts it")
+    t.eq(res.stats.get("won", 0), 0, "without counting it as a win")

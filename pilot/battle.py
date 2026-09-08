@@ -112,6 +112,21 @@ class BattleEngine:
             # for the next A tap to answer with its default of YES.
             if self.c.nickname_prompt(evs):
                 continue
+            # **Before the "is it over?" check, not after.** Blacking out ends
+            # the battle, so `wBattleMode` clears on the same tick `LostBattle`
+            # fires -- and an "is it over?" test that runs first returns
+            # "ended", which `run` maps to *won*. Measured: a Lv14 lead on 1HP
+            # against a Lv60 enemy, the party wiped, `mon_fainted` and
+            # `lost_battle` both fired, and the engine reported `won`.
+            #
+            # That is the worst available way to be wrong. The pilot cannot
+            # tell winning from blacking out, `grind` counts the loss in
+            # `stats["won"]`, and the only outward sign is that the next
+            # `_ensure_grass` fails because a white-out has moved the player to
+            # a Pokemon Center and healed the party -- so even the HP looks
+            # like a win.
+            if "lost_battle" in evs:
+                return "lost"
             if not self.r.in_battle():
                 return "ended"
             if "battle_menu" in evs:
