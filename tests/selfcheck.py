@@ -181,6 +181,59 @@ MUTATIONS = [
         '''                if engaged == "never":''',
         "absent apart from unreachable",
     ),
+    (
+        # Not a bug that fires today -- `TakeTask.run` calls `things_here()`
+        # first and the two reads cannot disagree with no frames between them.
+        # It is a shape that only has to be correct because of that, which is
+        # why the check is static: no run of this program would find it.
+        "take_here drops two keys on its early return",
+        "pilot/travel.py",
+        '''            return {"ok": True, "took": [], "empty": [], "unreachable": [],
+                    "message": f"{here} has nothing left"}''',
+        '''            return {"ok": True, "took": [],
+                    "message": f"{here} has nothing left"}''',
+        "returned on every path",
+    ),
+    (
+        # The guard was correct. The rule is that a `.get` which has to stay
+        # beside its subscript to be correct is a thing to keep correct forever.
+        "an optional key is read by subscript behind a .get guard",
+        "pilot/tasks/shop.py",
+        '''        shop = out.get("shop")
+        if shop:
+            res.stats["shop"] = shop''',
+        '''        if out.get("shop"):
+            res.stats["shop"] = out["shop"]''',
+        "never read by subscript",
+    ),
+    (
+        # The two failures used to be one `False`, and the caller mapped it to
+        # a blackout -- so a menu the pilot could not drive was written into the
+        # log as a defeat, with the party still standing and the battle running.
+        "a party list that will not drive is reported as a blackout",
+        "pilot/battle.py",
+        '''            out.note("the party list never drew; not pressing anything into it")
+            return "stuck"''',
+        '''            out.note("the party list never drew; not pressing anything into it")
+            return "wiped"''',
+        "reported as stuck",
+    ),
+    (
+        # `_switch_to` was fixed to drive the cursor and check that it arrived.
+        # `_send_next_mon` kept its own copy of the loop without the check at
+        # the end, so a cursor that never got there still received an A -- and
+        # sent out whatever happened to be highlighted.
+        "a forced switch presses A without checking the cursor arrived",
+        "pilot/battle.py",
+        '''        if not self.c.drive_menu_cursor(slot + 1, len(party)):
+            out.note(f"could not reach party slot {slot + 1} in the switch list")
+            return "stuck"''',
+        '''        for _ in range(len(party) + 2):
+            if self.s.rb("wMenuCursorY") == slot + 1:
+                break
+            self.s.tap("down", hold=4, gap=6)''',
+        "stops the switch before",
+    ),
 ]
 
 

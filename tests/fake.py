@@ -106,12 +106,6 @@ class FakeBudget:
     def frames_used(self) -> int:
         return self.frames
 
-    def wall_elapsed(self) -> float:
-        return 0.0
-
-    def remaining_frames(self) -> int:
-        return 10 ** 9
-
     def open_reserve(self) -> None:
         self.reserve_opened = True
 
@@ -173,9 +167,6 @@ class FakeSession:
 
     def wb(self, where: str | int, value: int) -> None:
         self.wram[self._at(where)] = value & 0xFF
-
-    def addr_of(self, symbol: str) -> int:
-        return self.sym.addr(symbol)
 
     # --- driving ----------------------------------------------------------
     def tick(self, frames: int = 1) -> None:

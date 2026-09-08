@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""Which code the tests actually run.
+
+Not a score to chase. The percentage on its own is close to meaningless here --
+most of this project cannot be exercised without a ROM built from the
+disassembly, and the suite skips those tests rather than faking a cartridge, so
+the number moves when a ROM appears and not when the code gets better. What the
+table is for is *where*: it ranks the modules by how much of each has never been
+run, and the only interesting question is whether the module at the top of that
+list is one you would mind being wrong.
+
+That question has already paid twice in this repository, both times by naming a
+module rather than by producing a number. The navigation fallbacks were the
+least-run code in the project, and they are what runs when something has already
+gone wrong -- so they got `test_nav_fallbacks.py`. And `tasks/grind.py` gathered
+every statistic it reports and then never assigned them to its result, on a line
+no test reached, which made the example output in the README unproducible.
+
+`--dead` is the sharper half. A function with no executed statement in it was
+never called at all, which is a different finding from a partly-covered one: it
+is either dead code or an untested entry point, and both are worth a name. Three
+functions found that way in an earlier pass -- `Navigator.walk`,
+`GameData.map_info`, `contract.usable` -- were dead and are gone.
+
+Usage:
+    tools/coverage                the table
+    tools/coverage --dead         functions nothing ever called
+    tools/coverage --module NAME  the unrun line ranges of one module
+    tools/coverage -- -k screen   pass the rest through to the suite
+    tools/coverage --reuse --dead ask a second question of the last run
+
+The suite takes a couple of minutes, so `--reuse` reads the `.coverage` file
+the previous invocation left instead of running it again. It says how old that
+file is, because a stale measurement that does not admit to being stale is worse
+than no measurement.
+
+Needs the `coverage` package, which `requirements.txt` lists as optional. Without
+it this says so and exits, rather than pretending to measure something.
+"""
+from __future__ import annotations
+
+import ast
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+# Re-exec under the venv, the same thing `run-tests` does with `exec`. The
+# `coverage` package is installed there and not in the system python, and the
+# shebang picks the system one -- so without this the suite would be measured
+# correctly and then the results would be unreadable.
+#
+# The test is `sys.prefix`, not the path of the interpreter: a venv's
+# `bin/python` is a symlink to the base interpreter, so resolving both sides
+# makes them equal and the re-exec never fires.
+_VENV = ROOT / ".venv"
+if (_VENV / "bin" / "python").exists() and sys.prefix != str(_VENV):
+    import os
+    _py = str(_VENV / "bin" / "python")
+    os.execv(_py, [_py, str(Path(__file__).resolve()), *sys.argv[1:]])
+
+# What is measured. `pilot/` is the project; the tests and the tools are not the
+# subject, and including them would flatter the number for no reason.
+TARGET = "pilot"
+
+
+def die(message: str, code: int = 1):
+    print(message, file=sys.stderr)
+    raise SystemExit(code)
+
+
+def venv_python() -> Path:
+    python = ROOT / ".venv" / "bin" / "python"
+    if not python.exists():
+        die("no venv found. Run: python3 -m venv .venv && "
+            "./.venv/bin/pip install -r requirements.txt")
+    return python
+
+
+def run_suite(extra: list[str], reuse: bool = False):
+    """Run the suite under coverage. Same entry point as ./run-tests."""
+    data = ROOT / ".coverage"
+    if reuse:
+        if not data.exists():
+            die("nothing to reuse: no .coverage file yet. Run without --reuse.")
+        age = time.time() - data.stat().st_mtime
+        when = (f"{age / 3600:.1f} hours" if age > 3600
+                else f"{age / 60:.0f} minutes" if age > 60
+                else f"{age:.0f} seconds")
+        print(f"  reusing the measurement from {when} ago, not re-running",
+              file=sys.stderr)
+        return
+    if data.exists():
+        data.unlink()
+    cmd = [str(venv_python()), "-m", "coverage", "run",
+           f"--source={TARGET}", "-m", "tests", *extra]
+    said = " " + " ".join(extra) if extra else ""
+    print(f"  running the suite under coverage{said}...", file=sys.stderr)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    if "No module named coverage" in (proc.stderr or ""):
+        die("this needs the `coverage` package:\n"
+            "    ./.venv/bin/pip install coverage")
+    tail = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
+    print(f"  suite: {tail[-1] if tail else '(no summary)'}", file=sys.stderr)
+    # A failing suite still produced data and the table is still worth printing,
+    # but say so: coverage read off a red suite describes a different program
+    # from the one that passes.
+    if proc.returncode != 0:
+        print("  warning: the suite did not pass, so this describes a run "
+              "with failures in it", file=sys.stderr)
+        for ln in tail[-12:]:
+            print(f"    | {ln}", file=sys.stderr)
+    if not data.exists():
+        die("coverage produced no data file")
+
+
+def measure() -> list[dict]:
+    """Per-file statement lines and which of them never ran."""
+    try:
+        from coverage import Coverage
+    except ImportError:
+        die("this needs the `coverage` package:\n"
+            "    ./.venv/bin/pip install coverage")
+    cov = Coverage(data_file=str(ROOT / ".coverage"))
+    cov.load()
+    rows = []
+    for path in sorted(cov.get_data().measured_files()):
+        p = Path(path)
+        rel = p.relative_to(ROOT) if p.is_relative_to(ROOT) else p
+        _name, statements, _excluded, missing, _fmt = cov.analysis2(path)
+        rows.append({
+            "file": str(rel),
+            "path": p,
+            # Statement lines, not every line in the file. The distinction
+            # matters for --dead: a blank line or a continuation is never
+            # "missing", so counting raw line numbers would make almost every
+            # multi-line function look partly covered.
+            "statements": set(statements),
+            "missing": set(missing),
+        })
+    return rows
+
+
+def ratio(row) -> float:
+    total = len(row["statements"])
+    return (total - len(row["missing"])) / total if total else 1.0
+
+
+def definitions(path: Path) -> list[tuple[str, int, int, bool]]:
+    """(qualified name, def line, last line, nested-in-a-function) per def."""
+    try:
+        tree = ast.parse(path.read_text(errors="replace"))
+    except (OSError, SyntaxError):
+        return []
+    out: list[tuple[str, int, int, bool]] = []
+
+    def walk(node, prefix: str, in_function: bool):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = f"{prefix}{child.name}"
+                out.append((name, child.lineno,
+                            child.end_lineno or child.lineno, in_function))
+                walk(child, f"{name}.", True)
+            elif isinstance(child, ast.ClassDef):
+                walk(child, f"{prefix}{child.name}.", in_function)
+
+    walk(tree, "", False)
+    return out
+
+
+def never_called(row) -> list[str]:
+    """Functions in this file with no executed statement in their body.
+
+    The `def` line itself is excluded, because it executes at import time
+    whether or not anything ever calls the function -- that is exactly the
+    difference this looks for. A closure inside a function that was itself never
+    called is dropped: it is implied, and listing both says the same thing
+    twice.
+    """
+    statements, missing = row["statements"], row["missing"]
+    dead: list[str] = []
+    for name, first, last, nested in definitions(row["path"]):
+        body = {ln for ln in statements if first < ln <= last}
+        if not body or not body <= missing:
+            continue
+        if nested and any(name.startswith(f"{d}.") for d in dead):
+            continue
+        dead.append(name)
+    return dead
+
+
+def table(rows):
+    rows = sorted(rows, key=ratio)
+    total = sum(len(r["statements"]) for r in rows)
+    unrun = sum(len(r["missing"]) for r in rows)
+    width = max((len(r["file"]) for r in rows), default=12)
+    rule = f"  {'-' * width}  {'-' * 5} {'-' * 5} {'-' * 5}"
+    print()
+    print(f"  {'module'.ljust(width)}  {'unrun':>5} {'stmts':>5} {'run':>5}")
+    print(rule)
+    for r in rows:
+        print(f"  {r['file'].ljust(width)}  {len(r['missing']):>5} "
+              f"{len(r['statements']):>5} {100 * ratio(r):>4.0f}%")
+    print(rule)
+    pct = 100 * (total - unrun) / total if total else 100.0
+    print(f"  {('all of ' + TARGET + '/').ljust(width)}  {unrun:>5} "
+          f"{total:>5} {pct:>4.0f}%")
+    print()
+    print("  Read it from the top. The question is not the percentage, it is")
+    print("  whether the module in the first row is one you would mind being")
+    print("  wrong.  tools/coverage --dead  is the sharper question.")
+    print()
+
+
+def dead(rows):
+    found = 0
+    print()
+    for r in sorted(rows, key=lambda r: r["file"]):
+        names = never_called(r)
+        if not names:
+            continue
+        found += len(names)
+        print(f"  {r['file']}")
+        for name in names:
+            print(f"      {name}")
+    print()
+    if found:
+        print(f"  {found} function(s) that no test enters. Each is either dead")
+        print("  code to delete or a path to test -- decide which, per name.")
+    else:
+        print(f"  every function in {TARGET}/ is entered by at least one test.")
+    print()
+
+
+def ranges(lines) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for line in sorted(lines):
+        if out and line == out[-1][1] + 1:
+            out[-1] = (out[-1][0], line)
+        else:
+            out.append((line, line))
+    return out
+
+
+def module(rows, want: str):
+    hits = [r for r in rows if want in r["file"]]
+    if not hits:
+        die(f"no measured module matching {want!r}")
+    for r in hits:
+        total = len(r["statements"])
+        print()
+        print(f"  {r['file']}: {total - len(r['missing'])}/{total} "
+              "statements run")
+        if not r["missing"]:
+            print("  nothing unrun.")
+            continue
+        print("  never run:")
+        # Collapsed to ranges, which is how a person reads it against the file.
+        for lo, hi in ranges(r["missing"]):
+            print(f"      {lo}" if lo == hi else f"      {lo}-{hi}")
+    print()
+
+
+def main(argv: list[str]) -> int:
+    args = list(argv)
+    extra: list[str] = []
+    if "--" in args:
+        cut = args.index("--")
+        extra, args = args[cut + 1:], args[:cut]
+    one = None
+    if "--module" in args:
+        i = args.index("--module")
+        if i + 1 >= len(args):
+            die("--module needs a name")
+        one = args[i + 1]
+        args = args[:i] + args[i + 2:]
+    show_dead = "--dead" in args
+    reuse = "--reuse" in args
+    known = ("--dead", "--reuse")
+    for unknown in [a for a in args if a.startswith("-") and a not in known]:
+        die(f"unknown option {unknown}. Pass suite arguments after `--`.")
+    if reuse and extra:
+        die("--reuse does not run the suite, so suite arguments do nothing.")
+    run_suite(extra, reuse=reuse)
+    rows = measure()
+    if one:
+        module(rows, one)
+    elif show_dead:
+        dead(rows)
+    else:
+        table(rows)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

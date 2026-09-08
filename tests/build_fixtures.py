@@ -1,16 +1,23 @@
 """Builds the save-state fixtures the suite runs against.
 
-Fixtures are committed as gzipped PyBoy save states (~14 KB each), but they are
-generated here rather than hand-made, so they can be rebuilt whenever the ROM is
-rebuilt or a new starting situation is needed:
+Fixtures are gzipped PyBoy save states (~12 KB each), generated here rather than
+hand-made, so they can be rebuilt whenever the ROM is rebuilt or a new starting
+situation is needed:
 
     ./run-tests --build-fixtures
 
 Only situations that are slow to reach get stored. Anything cheap to derive --
 being *in* a battle, having balls in the bag -- is set up at test time instead,
-which keeps the fixture set small and its contents obvious. Both of those have
+which keeps the fixture set small and its contents obvious. Three of those have
 harness helpers: `give_balls()` writes them into the bag, `into_wild_battle()`
-walks the grass until one starts.
+walks the grass until one starts, and `clone_lead()` gives the party a second
+member -- which every fixture lacks, and which is what made both of the
+switch-a-Pokemon paths unreachable until it existed.
+
+They are **not** committed. `.gitignore` excludes them along with the ROM and
+every save: nothing derived from the game is distributed here, so a fresh
+checkout has no fixtures and the tests that need one skip themselves until
+`--build-fixtures` has been run against your own build.
 """
 from __future__ import annotations
 

@@ -105,9 +105,9 @@ silently never fire — see [section 4](#4-hooks-the-game-asks-we-answer).
 
 ## 2. The shape of it
 
-<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py @ e0d77f29e3c9 -->
+<!-- covers-api: pilot/session.py pilot/symbols.py pilot/state.py pilot/collision.py pilot/nav.py pilot/world.py pilot/travel.py pilot/control.py pilot/battle.py pilot/pilot.py pilot/gamedata.py pilot/screen.py pilot/items.py pilot/advice.py @ 53ff1902e8f5 -->
 
-Roughly 10,000 lines of Python, in layers. Arrows point from a layer to what it
+Roughly 11,000 lines of Python, in layers. Arrows point from a layer to what it
 depends on.
 
 ```mermaid
@@ -233,7 +233,7 @@ output unproducible.
 
 ### `session.py` — PyBoy, hooks, and the input model
 
-<!-- covers: pilot/session.py @ 1d2afa8f68bd -->
+<!-- covers: pilot/session.py @ 4cb00ca94ec8 -->
 
 Owns the emulator. Runs frames, reads memory, registers the hooks, and holds the
 queue of events they produce.
@@ -299,7 +299,7 @@ where it started.
 
 ### `state.py` — what the game is doing right now
 
-<!-- covers: pilot/state.py @ bfd255e5ba73 -->
+<!-- covers: pilot/state.py @ 9d0499a24ea3 -->
 
 Typed reads: location, party, the battle, both readable bag pockets, the wallet,
 and the game's event flags. Every read goes through a symbol, so nothing here
@@ -361,7 +361,7 @@ it.
 
 ### `gamedata.py`, `wild.py`, `items.py` — what the cartridge knows
 
-<!-- covers: pilot/gamedata.py pilot/wild.py pilot/items.py @ 07c4b5889192 -->
+<!-- covers: pilot/gamedata.py pilot/wild.py pilot/items.py @ f246c1b9167c -->
 
 Species names, move power and type, map names, walkability tables, event flag
 indices, which wild Pokémon appear where, and everything about the bag — all
@@ -532,7 +532,7 @@ player standing at (7,53).
 
 ## 4. Hooks: the game asks, we answer
 
-<!-- covers: pilot/symbols.py pilot/session.py @ f2cc41765658 -->
+<!-- covers: pilot/symbols.py pilot/session.py @ c53d56dc3dc9 -->
 
 This is the spine of the whole design. Instead of polling memory to guess what
 the game wants, the pilot sets a callback on the ROM routine that *is* the
@@ -599,7 +599,7 @@ usually the one that mattered.
 
 ## 5. Battles
 
-<!-- covers: pilot/battle.py pilot/control.py @ 774c44f69e08 -->
+<!-- covers: pilot/battle.py pilot/control.py @ ad9a2b36304f -->
 
 One engine, driven by a policy. A grind wants to win, a hunt wants to leave, a
 catch wants to weaken and stop — all three are the same loop with different
@@ -682,7 +682,7 @@ flowchart TD
     F -- no --> FIGHT["pick a move and attack"]
     FIGHT --> R{"battle over?"}
     R -- no --> A
-    R -- yes --> OUT["won · lost · ended"]
+    R -- yes --> OUT["won · lost · ended · timeout"]
 ```
 
 **The bag is asked before the exit, and its threshold is higher.** `heal_below`
@@ -740,6 +740,27 @@ sends out the wrong Pokémon, and the only sign is a grind that trains something
 else. This repo's own mutation self-check tests for the same defect in
 `choose_move` by name.
 
+**The other switch is the one after a faint, and it had the bug the first one
+was fixed for.** `_send_next_mon` picks the replacement when the lead goes
+down. It kept its own copy of the cursor loop, written before `_switch_to`
+learned to drive one — and without the check at the end, so a cursor that never
+reached the row still received an A and sent out whatever was highlighted. On a
+list that wraps, that is the same defect described above, in the twin of the
+function that documents it at length.
+
+It also had a worse one. Both of its ways of failing were a single `False`, and
+the caller mapped that to `result = "lost"` — so a party list that would not
+draw, or a cursor that would not move, was recorded as a **blackout** with the
+party still standing and the battle still running. Exactly the shape of the
+`ended`-means-`won` mistake above: a report that reads plausibly and is wrong
+about what happened.
+
+It answers `"sent"`, `"wiped"` or `"stuck"` now. Only `"wiped"` is a loss;
+`"stuck"` is the pilot failing to drive the game, which is a `timeout`. Neither
+path had ever run in a test, and the reason was the fixtures rather than the
+tests: all three have a party of one, so there is nothing to switch to.
+`clone_lead()` in the harness supplies a second member.
+
 **Move choice ranks by power × accuracy, not by matchup.** There is no type
 chart here. Good enough to grind efficiently, and explicitly not optimal play —
 listed in the README's limits for that reason.
@@ -750,7 +771,7 @@ listed in the README's limits for that reason.
 
 ## 5a. The bag
 
-<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 0c5bad4aadb8 -->
+<!-- covers: pilot/control.py pilot/items.py pilot/travel.py @ 7ceae9635d01 -->
 
 The pilot could throw a ball and do nothing else with the pack. Using an item on
 a party member is the thing everything else here depends on: healing without a
@@ -961,7 +982,7 @@ ended up carrying half a sentence from a box already on its way out.
 
 ## 6. Moving around
 
-<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ 648c6771f203 -->
+<!-- covers: pilot/nav.py pilot/world.py pilot/travel.py @ 0db0dfe02933 -->
 
 Five layers, each built on the one below. The top one is a fan rather than a
 single answer, because "go somewhere and do a thing" is three different things.
@@ -1113,7 +1134,7 @@ counting `session.presses` was measuring a list that movement never touches.
 
 ## 7. The tasks
 
-<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ c8c9beb14bcb -->
+<!-- covers: pilot/tasks/base.py pilot/tasks/grind.py pilot/tasks/hunt.py pilot/tasks/catch.py pilot/tasks/search.py pilot/tasks/bootstrap.py pilot/tasks/trainers.py pilot/tasks/shop.py pilot/tasks/take.py @ 6b064cbfc6ea -->
 
 Every task returns a `TaskResult`: a status, a message, a stats dict, whether the
 game was saved, and notes. Front ends render that shape rather than inventing
@@ -1140,7 +1161,7 @@ something is the pilot's problem and is reported as blocked.
 
 ### Five that act on where you already are
 
-<!-- covers: pilot/tasks/moment.py pilot/tasks/shop.py pilot/tasks/take.py @ 7b886dd2cd2c -->
+<!-- covers: pilot/tasks/moment.py pilot/tasks/shop.py pilot/tasks/take.py @ 27a20f0b5c60 -->
 
 Every searching task above goes *looking* for something. These do the obvious
 thing with the situation in front of you and take no target:
@@ -1400,7 +1421,7 @@ Master Ball is never thrown unless you name it.
 
 ## 7b. Where to go instead
 
-<!-- covers: pilot/advice.py pilot/wild.py @ 2cb3e6dd30ec -->
+<!-- covers: pilot/advice.py pilot/wild.py @ 2e8b42fe6e79 -->
 
 A grind that runs its budget and gains two levels has answered the wrong
 question. `advice.py` answers the right one, out of two facts that were already
@@ -1648,7 +1669,7 @@ the next in-game save would be layered onto a different game's save file.
 
 ## 9. Recording, checkpoints and backups
 
-<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ 60c39a536969 -->
+<!-- covers: pilot/recorder.py pilot/timeline.py pilot/backup.py @ ad1365dbe402 -->
 
 Three different things, easily confused.
 
@@ -1710,7 +1731,7 @@ before any task.
 
 ## 10. Tests
 
-<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ 9e317b8e46ec -->
+<!-- covers: run-tests tests/harness.py tests/fake.py tests/selfcheck.py @ 202dd26beb71 -->
 
 ```bash
 ./run-tests                      # everything
@@ -1719,10 +1740,10 @@ before any task.
 ./run-tests --build-fixtures     # regenerate the fixtures
 ```
 
-268 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
+277 tests, and they need a venv (`python3 -m venv .venv && ./.venv/bin/pip
 install -r requirements.txt`).
 
-**118 of them need nothing but the repository**, which is what CI has: the
+**122 of them need nothing but the repository**, which is what CI has: the
 disassembly is cloned but no ROM is built, because building one needs rgbds and
 no ROM is distributed. `tests/fake.py` is why that number is not 20 — a
 stand-in session over a work-RAM buffer, with scripted button responses and a
@@ -1731,21 +1752,42 @@ were decisions about a game state rather than anything needing a cartridge. The
 real readers, the real symbol-table parser, the real capture logic and the
 navigator's fallbacks all run against it.
 
-The other 150 are genuine integration tests — walking, the intro, crossing maps,
+The other 155 are genuine integration tests — walking, the intro, crossing maps,
 a real save — and skip themselves without a ROM rather than failing.
 
-**`--self-check` re-introduces sixteen bugs one at a time** and checks the test
+**`--self-check` re-introduces twenty bugs one at a time** and checks the test
 meant to catch each one goes red, reverting every mutation afterwards. That is
 the only thing which proves a *test* works: a test written alongside a fix is
 written against a codebase where the bug is already gone, so it has never been
 seen to fail.
 
-Every entry is a bug that was live in this repository. Four are recent, and all
-four had the same shape — the code did something plausible and reported success:
-a battle the party *lost* reported as won, a grind that collected every count
-and dropped them at the last step, an object array read three entries past its
-end into its neighbour, and an item pattern that quietly matched 232 of 256
-rows.
+Every entry is a bug that was live in this repository, and most of them share
+one shape — the code did something plausible and reported success: a battle the
+party *lost* reported as won, a grind that collected every count and dropped
+them at the last step, an object array read three entries past its end into its
+neighbour, an item pattern that quietly matched 232 of 256 rows, and a party
+list the pilot could not drive recorded as a blackout.
+
+**`tools/coverage` is how the untested paths get found rather than noticed.**
+It runs the suite under `coverage` and ranks the modules by how much of each has
+never been run. The percentage is close to meaningless on its own — most of this
+project needs a cartridge, so the number moves when a ROM appears rather than
+when the code improves — and `--dead` is the half worth running: the functions
+with no executed statement in them at all, which were never *called*, which is a
+sharper finding than a partly-covered one.
+
+It named 82 on its first run. Eleven were dead and are gone. Two of the rest had
+bugs in them, both in code that was unreachable for a reason: a dict shape that
+was only correct because of the order its caller happened to read things in, and
+the forced-switch path in section 5, which no fixture could reach because every
+fixture has a party of one.
+
+```bash
+tools/coverage                   # the table, worst-covered first
+tools/coverage --dead            # functions no test enters
+tools/coverage --module nav      # the unrun line ranges of one module
+tools/coverage --reuse --dead    # a second question, without re-running
+```
 
 The mutation's `find` string must appear **exactly once**, so a mutation cannot
 silently no-op after the code it targets has moved. That bites: one of the four
@@ -1754,10 +1796,28 @@ substring of the same line at a deeper indent, so the anchor matched twice. A
 skip is reported rather than counted, which is the whole point of the rule.
 
 <details>
-<summary><b>Advanced detail:</b> fixtures, and two ways a test can lie</summary>
+<summary><b>Advanced detail:</b> fixtures, and three ways a test can lie</summary>
 
 **Fixtures are generated locally and gitignored.** No ROM, save or save state is
 distributed here — `--build-fixtures` makes them from your own build.
+
+Only slow-to-reach situations are stored; anything cheap to derive is set up at
+test time, and three harness helpers cover what the fixtures deliberately lack.
+`give_balls()` and `give_items()` write into the bag, `into_wild_battle()` walks
+the grass until one starts, and `clone_lead()` gives the party a second member
+by copying the first. That last one exists because every fixture has a party of
+one, which made both switch-a-Pokémon paths unreachable — and both of them had
+bugs. Two *identical* members is deliberate: the party list reads the same on
+every row, so a test cannot pass on a mon that merely looks different.
+
+**A test that stubs out the function it is testing.** The clearest case this
+repo has produced: two battle fixes got tests that replaced `_send_next_mon`
+with a stand-in and checked the *caller* handled its answer. That is a real
+thing to test, and it says nothing whatever about the function — both mutations
+came back `MISSED`. What replaced them sabotages one control call at the moment
+the replacement is asked for, so the real function runs against a menu that will
+not behave. Nothing but the mutation list finds a test that is measuring a mock,
+which is the argument for keeping one.
 
 **Use the harness's `rom_copy()` rather than the shared ROM.** A test that lets
 the emulator write a `.sav` beside the shared ROM mutates the fixture every

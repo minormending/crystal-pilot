@@ -56,13 +56,6 @@ class Budget:
     def frames_used(self) -> int:
         return self._frames_used
 
-    @property
-    def wall_elapsed(self) -> float:
-        return time.monotonic() - self._t0
-
-    def remaining_frames(self) -> int:
-        return max(0, self.max_frames - self._frames_used)
-
     def open_reserve(self, frames: int = 120_000, seconds: float = 120.0) -> None:
         """Extend the budget for teardown after a timeout.
 
@@ -284,9 +277,6 @@ class Session:
                 return True
         return False
 
-    def wait_frames(self, n: int) -> None:
-        self.tick(n)
-
     # --- input -------------------------------------------------------------
     def tap(self, button: str, hold: int = 6, gap: int = 6) -> None:
         """Press and release, with enough frames either side for the game to poll."""
@@ -365,13 +355,6 @@ class Session:
         else:
             self.pyboy.memory[addr] = value & 0xFF
 
-    def addr_of(self, symbol: str) -> int:
-        return self.sym.addr(symbol)
-
-    @property
-    def wram_bank(self) -> int:
-        return self.pyboy.memory[0xFF70] & 0x07
-
     # --- save states / SRAM ------------------------------------------------
     def snapshot(self) -> bytes:
         buf = io.BytesIO()
@@ -401,10 +384,6 @@ class Session:
         self._frame += 1
         self.pyboy.screen.image.save(str(path))
         return path
-
-    def flush_recorder(self) -> dict | None:
-        rec = self.detach_recorder()
-        return rec.close() if rec is not None else None
 
     # --- battery SRAM ------------------------------------------------------
     SRAM_BANK_SIZE = 0x2000        # 8 KiB per cartridge RAM bank

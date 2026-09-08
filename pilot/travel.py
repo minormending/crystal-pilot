@@ -243,7 +243,13 @@ class Traveler:
         here = self.current_const()
         things = self.things_here()
         if not things:
-            return {"ok": True, "took": [], "message": f"{here} has nothing left"}
+            # The full shape, including the two empty lists. An early return
+            # that dropped them made `out["unreachable"]` in `TakeTask.run` a
+            # KeyError waiting for the day the two `things_here()` calls
+            # disagree -- and a dict whose keys depend on which path returned it
+            # is a trap regardless of whether anyone has fallen in yet.
+            return {"ok": True, "took": [], "empty": [], "unreachable": [],
+                    "message": f"{here} has nothing left"}
         took: list[str] = []
         empty: list[str] = []
         unreachable: list[str] = []

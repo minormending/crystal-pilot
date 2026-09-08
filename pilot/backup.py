@@ -228,13 +228,6 @@ class GameSaver:
                 return True
         return False
 
-    def _await_cursor(self, tries: int = 25) -> bool:
-        for _ in range(tries):
-            if self.s.rb("wMenuCursorY") != 0:
-                return True
-            self.s.tick(4)
-        return False
-
     def _entry_count(self, limit: int = 12) -> int:
         """Count menu rows by stepping until the cursor wraps.
 

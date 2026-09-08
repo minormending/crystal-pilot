@@ -672,7 +672,7 @@ slot is one step backwards that the next job overwrites.
 ./run-tests --build-fixtures   # regenerate the save states it runs against
 ```
 
-268 tests. Most of them exist because of a specific bug that shipped and was
+277 tests. Most of them exist because of a specific bug that shipped and was
 invisible from the outside — the task still reported success while doing the
 wrong thing. Move selection silently fell back to whatever the menu cursor was
 resting on; fleeing stopped working and fought instead; a catch burned a ball it
@@ -700,9 +700,9 @@ drive a real emulator skip themselves. The runner says so rather than reporting
 a bare pass:
 
 ```
-118 passed, 150 skipped, 0 failed  (0.5s)
+122 passed, 155 skipped, 0 failed  (0.9s)
   skipped: ROM not found: /home/runner/pokecrystal/pokecrystal.gbc
-  (150 tests need a ROM built from the disassembly)
+  (155 tests need a ROM built from the disassembly)
 ```
 
 That used to be 20 of 108, and the 20 only read data files — the badge covered
@@ -731,18 +731,53 @@ caught  the item attribute pattern cannot read a flag expression
 caught  move choice counts presses instead of reading the cursor
 caught  the intro is left to mash A through the NAME menu
 caught  collision map reads the wrong quadrant of each block
-16 caught, 0 missed
+caught  take_here drops two keys on its early return
+caught  a party list that will not drive is reported as a blackout
+caught  a forced switch presses A without checking the cursor arrived
+20 caught, 0 missed
 ```
 
-The first four are recent, and each is a bug that was live in this repository
-rather than a hypothetical. They are here because the mutation list is the only
-thing that proves the *test* for each one works — a test written alongside a fix
-is written against a codebase where the bug is already gone.
+Each is a bug that was live in this repository rather than a hypothetical. They
+are here because the mutation list is the only thing that proves the *test* for
+each one works — a test written alongside a fix is written against a codebase
+where the bug is already gone.
 
-It has already earned its keep. Two tests passed mutations they should have
-caught: one only exercised a single battle, when the bug needed a second turn to
-appear, and one walked uniform grass, where reading the wrong quadrant of a
-block gives the right answer anyway. Both are now stronger.
+It has already earned its keep four times, and the last two are the clearest
+case for it. Two tests passed mutations they should have caught because they
+were not thorough enough: one only exercised a single battle, when the bug
+needed a second turn to appear, and one walked uniform grass, where reading the
+wrong quadrant of a block gives the right answer anyway.
+
+The other two failed for a sharper reason. The tests written for those two
+battle fixes **stubbed out the very function the fix was in** — one replaced
+`_send_next_mon` with a stand-in to check that the caller handled its answer,
+which is a real thing to test and tells you nothing about the function itself.
+Both mutations came back `MISSED`, and the fix was a pair of tests that sabotage
+one control call at the moment the replacement is asked for, so the real
+function runs against a menu that will not behave. Nothing but a mutation list
+finds a test that is measuring a mock.
+
+**`tools/coverage` is how the untested paths get found rather than noticed.** It
+runs the suite under `coverage` and ranks the modules by how much of each has
+never been run — deliberately not as a score, because most of this project needs
+a cartridge and the percentage therefore moves when a ROM appears rather than
+when the code improves:
+
+```bash
+tools/coverage                   # the table, worst-covered first
+tools/coverage --dead            # functions no test enters
+tools/coverage --module nav      # the unrun line ranges of one module
+tools/coverage --reuse --dead    # a second question, without re-running
+```
+
+`--dead` is the half worth running. A function with no executed statement in it
+was never *called*, which is a much sharper finding than a partly-covered one:
+it is either dead code or an untested path, and both are worth a name. It listed
+82 the first time. Eleven were dead and are gone; two of the rest had bugs in
+them, in code that was unreachable for a reason — a dict shape that was only
+correct because of the order its caller happened to read things in, and the
+switch-a-Pokémon path that no fixture could reach because every fixture has a
+party of one.
 
 Two mutations have since been dropped rather than papered over, each with the
 reason recorded next to the list. One because the code genuinely self-corrects

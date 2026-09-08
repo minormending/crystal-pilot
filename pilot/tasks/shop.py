@@ -65,8 +65,13 @@ class ShopTask:
             "wallet": self.r.money(),
             "seconds": f"{time.time() - started:.1f}",
         }
-        if out.get("shop"):
-            res.stats["shop"] = out["shop"]
+        # One lookup, not a `.get` guard around a subscript. `shop` is one of
+        # the keys `restock` returns only once there was a shop to walk to, and
+        # a guard that has to stay next to its subscript to be correct is a
+        # thing to keep correct forever.
+        shop = out.get("shop")
+        if shop:
+            res.stats["shop"] = shop
         # `restock` reports "already carrying N" as a success with nothing
         # bought, which it is: the errand is idempotent, and running it twice
         # should not be an error the second time.

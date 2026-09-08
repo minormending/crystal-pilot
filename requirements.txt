@@ -5,3 +5,7 @@ Pillow
 # Everything works without it; you just have to type the URL.
 qrcode
 ruff
+
+# Optional: `tools/coverage`, which ranks the modules by how much of each has
+# never been run. The suite itself needs none of it.
+coverage

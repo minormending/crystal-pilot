@@ -233,6 +233,47 @@ class Ctx(Check):
                 p.session.wb(base + i * 2 + 1, qty)
             p.session.wb(base + len(entries) * 2, 0xFF)
 
+    def clone_lead(self, p) -> int:
+        """Test-only: give the party a second member by copying the first.
+
+        Every fixture has a party of one, which is why nothing in this suite
+        had ever entered `_switch_to` or `_send_next_mon`: with nothing to
+        switch *to*, both are unreachable, and both turned out to have bugs in
+        them. A second member is cheap to derive from the first, which is where
+        `build_fixtures` says a situation belongs.
+
+        A duplicate rather than something caught in the grass, deliberately.
+        What these tests are about is the *menu* -- whether the cursor reaches
+        the row it was asked for, and whether the mon that comes out is the one
+        that was picked -- and for that, two identical members are the harder
+        case: the party list reads the same on every row, so a test cannot pass
+        by accident on a mon that merely looks different.
+
+        -> the new slot index.
+        """
+        s = p.session
+        slot = s.rb("wPartyCount")
+        if slot >= 6:
+            raise AssertionError("party is already full")
+        struct = s.sym.addr("wPartyMon1")
+        for off in range(0x30):        # PARTY_STRUCT_LEN
+            s.wb(struct + slot * 0x30 + off, s.rb(struct + off))
+        # The nicknames and the OT names live in their own arrays, and a party
+        # member with a blank nickname reads as an empty string everywhere the
+        # reader names it -- including in the note `_send_next_mon` writes.
+        for sym in ("wPartyMonNicknames", "wPartyMonOTs"):
+            base = s.sym.addr(sym)
+            for off in range(11):      # MON_NAME_LENGTH
+                s.wb(base + slot * 11 + off, s.rb(base + off))
+        # The species list is separate from the structs and terminated, not
+        # counted -- leave the 0xFF off and the game reads the next member out
+        # of whatever follows.
+        species = s.sym.addr("wPartySpecies")
+        s.wb(species + slot, s.rb(species))
+        s.wb(species + slot + 1, 0xFF)
+        s.wb("wPartyCount", slot + 1)
+        return slot
+
     def paint_screen(self, p, lines) -> None:
         """Test-only: write text into wTilemap, through the reader's own charmap.
 

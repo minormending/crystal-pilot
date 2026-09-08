@@ -89,13 +89,6 @@ def species_on(source_root: str, map_const: str,
     return [s for s, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
-def levels_on(source_root: str, map_const: str, species: str) -> tuple[int, int]:
-    """(lowest, highest) level a species appears at on a map."""
-    levels = [e["level"] for e in load(str(source_root)).get(map_const, [])
-              if e["species"] == species]
-    return (min(levels), max(levels)) if levels else (0, 0)
-
-
 def level_range(source_root: str, map_const: str,
                 time_of_day: int | None = None,
                 kinds: tuple[str, ...] = ("grass",)) -> tuple[int, int] | None:

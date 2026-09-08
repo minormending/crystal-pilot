@@ -91,3 +91,43 @@ def _(t):
                  f"{path.name}'s headline test count")
         for m in re.finditer(r"(\d+) tests, and they need a venv", text):
             t.eq(int(m.group(1)), total, f"{path.name}'s test count")
+
+
+@test("the documented ROM split adds up to the whole suite")
+def _(t):
+    """The other pair of numbers that goes stale, and did.
+
+    The README quotes the runner's own no-ROM output and CODE.md states the
+    same figure in prose. Both said 118 and 150 long after the suite had grown
+    past them, because the headline total was tested and this split was not --
+    and a transcript in a README is a claim like any other.
+
+    Checked as arithmetic rather than against a fresh no-ROM run, which would
+    mean booting the suite a second time from inside itself. Every quoted
+    figure has to name the same split, and the split has to account for every
+    test in the registry -- so updating one number and not the others fails
+    here.
+    """
+    from ..harness import _REGISTRY
+
+    total = len(_REGISTRY)
+    seen: list[tuple[str, int, int]] = []
+    for path, text in documents():
+        # "121 passed, 155 skipped" -- the runner's own line, quoted.
+        for m in re.finditer(r"(\d+) passed, (\d+) skipped", text):
+            seen.append((f"{path.name} transcript", int(m.group(1)),
+                         int(m.group(2))))
+        # "(155 tests need a ROM built from the disassembly)"
+        for m in re.finditer(r"\((\d+) tests need a ROM", text):
+            seen.append((f"{path.name} skip line", total - int(m.group(1)),
+                         int(m.group(1))))
+        # "**121 of them need nothing but the repository**"
+        for m in re.finditer(r"\*\*(\d+) of them need nothing but", text):
+            seen.append((f"{path.name} prose", int(m.group(1)),
+                         total - int(m.group(1))))
+    t.gte(len(seen), 3, f"the documents state the split somewhere ({seen})")
+    for where, no_rom, needs_rom in seen:
+        t.eq(no_rom + needs_rom, total,
+             f"{where}: {no_rom} + {needs_rom} should be the whole suite")
+    t.eq(len({(a, b) for _w, a, b in seen}), 1,
+         f"every quoted figure names the same split: {seen}")

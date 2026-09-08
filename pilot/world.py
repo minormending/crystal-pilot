@@ -209,9 +209,6 @@ class World:
                 self.shops[const] = {"clerk": clerk, "marts": tuple(marts)}
 
     # --- queries -----------------------------------------------------------
-    def name_of(self, group: int, number: int) -> str:
-        return self.gd.map_name(group, number)
-
     def neighbours(self, const: str) -> list[tuple[str, str, dict | None]]:
         """[(kind, target_const, warp_or_None)] where kind is 'edge' or 'warp'."""
         out: list[tuple[str, str, dict | None]] = []

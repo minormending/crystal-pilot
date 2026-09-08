@@ -210,8 +210,14 @@ class BattleEngine:
             elif what == "evolve":
                 self._handle_evolution(out)
             elif what == "replace":
-                if not self._send_next_mon(out):
+                sent = self._send_next_mon(out)
+                if sent == "wiped":
                     out.result = "lost"
+                    break
+                if sent == "stuck":
+                    # Not a loss. The battle is still running and the pilot
+                    # cannot drive it, which is what "gave up" means here.
+                    out.result = "timeout"
                     break
             elif what == "lost":
                 out.result = "lost"
@@ -381,22 +387,40 @@ class BattleEngine:
             out.note(f"switch to slot {slot} did not take (active={b.active_slot})")
             self.c.close_menus()
 
-    def _send_next_mon(self, out: BattleOutcome) -> bool:
-        """Pick a replacement after a faint. False if nothing can fight."""
+    def _send_next_mon(self, out: BattleOutcome) -> str:
+        """Choose a replacement after a faint.
+
+        -> "sent" | "wiped" | "stuck". Three answers rather than a bool,
+        because the two ways of failing are not the same thing and the caller
+        turned both into a blackout. A party with nothing left standing really
+        has lost. A party list that would not draw, or a cursor that would not
+        reach the slot, is the *pilot* failing to drive the game -- and
+        recording that as a loss writes a defeat into the log that never
+        happened, which is the defect `next_decision` had when a win and a wipe
+        shared a code path.
+
+        The cursor is driven and checked rather than counted, for the reason
+        `_switch_to` sets out at length: this list wraps, so a press that misses
+        leaves the arrow somewhere unknown, and the next press is A. This
+        function used to hold its own copy of that loop without the check at the
+        end, so a cursor that never arrived still got an A -- sending out
+        whatever happened to be highlighted.
+        """
         party = self.r.party()
         healthy = [m for m in party if not m.fainted]
         if not healthy:
             out.note("whole party fainted")
-            return False
+            return "wiped"
         slot = healthy[0].slot
         out.note(f"sending out {healthy[0].species_name} (slot {slot + 1})")
         if not self.c._await_menu_cursor():
-            return False
-        target = slot + 1                       # the party list is 1-based
-        for _ in range(len(party) + 2):
-            if self.s.rb("wMenuCursorY") == target:
-                break
-            self.s.tap("down", hold=4, gap=6)
+            out.note("the party list never drew; not pressing anything into it")
+            return "stuck"
+        # 1-based, and the forced-switch list is the party with no CANCEL row:
+        # there is no declining this one.
+        if not self.c.drive_menu_cursor(slot + 1, len(party)):
+            out.note(f"could not reach party slot {slot + 1} in the switch list")
+            return "stuck"
         self.s.tap("a")
         self.s.tick(40)
         # A forced switch may still offer a confirm; a second A is harmless once
@@ -404,7 +428,13 @@ class BattleEngine:
         if self.r.battle().active_slot != slot:
             self.s.tap("a")
             self.s.tick(40)
-        return True
+        # The active slot is the evidence, not the presses. Saying "sent" when
+        # the game is still asking would put the outer loop straight back here.
+        if self.r.battle().active_slot != slot:
+            out.note(f"slot {slot + 1} did not come out "
+                     f"(active={self.r.battle().active_slot})")
+            return "stuck"
+        return "sent"
 
     # --- prompts -----------------------------------------------------------
     def _tap_until(self, *events: str, max_taps: int = 40) -> bool:

@@ -22,3 +22,6 @@ pilot-backups/
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# Written by tools/coverage. Rebuilt by re-running the suite.
+.coverage

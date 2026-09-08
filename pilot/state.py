@@ -151,15 +151,6 @@ class GameStateReader:
     def party(self) -> list[Mon]:
         return [self.mon(i) for i in range(self.party_count())]
 
-    def find_in_party(self, species_id: int) -> Mon | None:
-        for m in self.party():
-            if m.species == species_id:
-                return m
-        return None
-
-    def party_healthy(self) -> bool:
-        return any(not m.fainted for m in self.party())
-
     # --- battle ------------------------------------------------------------
     def battle(self) -> BattleState:
         s = self.s
